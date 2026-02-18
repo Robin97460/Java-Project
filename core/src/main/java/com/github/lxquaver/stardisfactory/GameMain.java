@@ -837,15 +837,23 @@ public class GameMain extends ApplicationAdapter {
     }
 
     private boolean isCollidingWithBuilding(float worldX, float worldY) {
+        float playerHalfW = playerSprite.getWidth() * 0.5f;
+        float playerHalfH = playerSprite.getHeight() * 0.5f;
+        float playerLeft = worldX - playerHalfW;
+        float playerRight = worldX + playerHalfW;
+        float playerBottom = worldY - playerHalfH;
+        float playerTop = worldY + playerHalfH;
+
         for (Building b : buildings) {
+            if (b.isPlanter() || b.isConveyor()) continue;
+
             float bx = b.getGridX() - MAP_OFFSET;
             float by = b.getGridY() - MAP_OFFSET;
             float bw = b.getType().width;
             float bh = b.getType().height;
 
-            // Simple AABB collision check
-            if (worldX < bx + bw && worldX + playerSprite.getWidth() > bx &&
-                    worldY < by + bh && worldY + playerSprite.getHeight() > by) {
+            if (playerLeft < bx + bw && playerRight > bx &&
+                    playerBottom < by + bh && playerTop > by) {
                 return true;
             }
         }
@@ -1094,6 +1102,7 @@ public class GameMain extends ApplicationAdapter {
                 if (type == Building.Type.MAIN_HQ) {
                     if (t.getType() != Terrain.Type.GRASS) return false;
                 }
+
             }
         }
 
@@ -1246,76 +1255,92 @@ public class GameMain extends ApplicationAdapter {
     }
 
     private void updateConveyors(float dt) {
-        // On parcourt tous les bâtiments pour trouver les convoyeurs
         for (Building b : buildings) {
             if (!b.isConveyor()) continue;
 
-            // 1) Si le convoyeur est vide, il essaie de prendre un objet derrière lui
             if (!b.hasItem()) {
-                // Calculer la position "derrière" le convoyeur
-                int backX = b.getGridX();
-                int backY = b.getGridY();
-
-                // Rotation: 0=Nord, 1=Est, 2=Sud, 3=Ouest
-                // Donc "derrière" c'est l'opposé
-                switch (b.getRotation()) {
-                    case 0: backY -= 1; break; // Derrière Nord = Sud
-                    case 1: backX -= 1; break; // Derrière Est = Ouest
-                    case 2: backY += 1; break; // Derrière Sud = Nord
-                    case 3: backX += 1; break; // Derrière Ouest = Est
-                }
-
-                Building behind = getBuildingAtGridCell(backX, backY);
-                if (behind != null) {
-                    // Cas A: Derrière c'est une jardinière prête
-                    if (behind.isPlanter() && behind.isPlanterReady() && !behind.isPlanterEmpty()) {
-                        Building.PlanterCrop crop = behind.harvest();
-                        b.receiveItem(crop);
-                    }
-
-                    // Cas B: Derrière c'est un autre convoyeur plein qui veut donner
-                    else if (behind.isConveyor() && behind.hasItem() && behind.getTransportProgress() >= 1f) {
-                        // On vérifie si ce convoyeur pointe vers nous
-                        int frontOfBehindX = behind.getGridX();
-                        int frontOfBehindY = behind.getGridY();
-                        switch (behind.getRotation()) {
-                            case 0: frontOfBehindY += 1; break;
-                            case 1: frontOfBehindX += 1; break;
-                            case 2: frontOfBehindY -= 1; break;
-                            case 3: frontOfBehindX -= 1; break;
-                        }
-
-                        if (frontOfBehindX == b.getGridX() && frontOfBehindY == b.getGridY()) {
-                            b.receiveItem(behind.takeItem());
-                        }
-                    }
-                }
+                tryFeedConveyor(b);
             }
 
-            // 2) Si le convoyeur est plein et prêt, il essaie de donner à un HQ devant lui
             if (b.hasItem() && b.getTransportProgress() >= 1f) {
-                // Calculer la position "devant" le convoyeur
-                int frontX = b.getGridX();
-                int frontY = b.getGridY();
-                switch (b.getRotation()) {
-                    case 0: frontY += 1; break; // Nord
-                    case 1: frontX += 1; break; // Est
-                    case 2: frontY -= 1; break; // Sud
-                    case 3: frontX -= 1; break; // Ouest
-                }
+                int frontX = getFrontGridX(b);
+                int frontY = getFrontGridY(b);
+                Building front = getBuildingCoveringGridCell(frontX, frontY);
 
-                Building front = getBuildingAtGridCell(frontX, frontY);
-                if (front != null && front.isHQ()) {
-                    // On donne l'objet au HQ
+                if (front != null && front.isHQ() && canConveyorOutputToHQSide(b, front, frontX)) {
                     front.addToHQStock(b.takeItem(), 1);
                 }
             }
         }
     }
 
+    private void tryFeedConveyor(Building conveyor) {
+        int[][] neighbors = new int[][]{{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+
+        for (int[] dir : neighbors) {
+            int nx = conveyor.getGridX() + dir[0];
+            int ny = conveyor.getGridY() + dir[1];
+            Building neighbor = getBuildingAtGridCell(nx, ny);
+            if (neighbor == null || !neighbor.isConveyor()) continue;
+            if (!neighbor.hasItem() || neighbor.getTransportProgress() < 1f) continue;
+
+            if (getFrontGridX(neighbor) == conveyor.getGridX() && getFrontGridY(neighbor) == conveyor.getGridY()) {
+                conveyor.receiveItem(neighbor.takeItem());
+                return;
+            }
+        }
+
+        for (int[] dir : neighbors) {
+            int nx = conveyor.getGridX() + dir[0];
+            int ny = conveyor.getGridY() + dir[1];
+            Building neighbor = getBuildingAtGridCell(nx, ny);
+            if (neighbor != null && neighbor.isPlanter() && !neighbor.isPlanterEmpty() && neighbor.isPlanterReady()) {
+                conveyor.receiveItem(neighbor.harvest());
+                return;
+            }
+        }
+    }
+
+    private int getFrontGridX(Building b) {
+        int x = b.getGridX();
+        if (b.getRotation() == 1) x += 1;
+        if (b.getRotation() == 3) x -= 1;
+        return x;
+    }
+
+    private int getFrontGridY(Building b) {
+        int y = b.getGridY();
+        if (b.getRotation() == 0) y += 1;
+        if (b.getRotation() == 2) y -= 1;
+        return y;
+    }
+
+    private boolean canConveyorOutputToHQSide(Building conveyor, Building hq, int hqCellX) {
+        if (conveyor.getRotation() == 1) {
+            return hqCellX == hq.getGridX();
+        }
+        if (conveyor.getRotation() == 3) {
+            return hqCellX == hq.getGridX() + hq.getType().width - 1;
+        }
+        return false;
+    }
+
     private Building getBuildingAtGridCell(int gridX, int gridY) {
         for (Building b : buildings) {
             if (b.getGridX() == gridX && b.getGridY() == gridY) {
+                return b;
+            }
+        }
+        return null;
+    }
+
+    private Building getBuildingCoveringGridCell(int gridX, int gridY) {
+        for (Building b : buildings) {
+            int bx = b.getGridX();
+            int by = b.getGridY();
+            int bw = b.getType().width;
+            int bh = b.getType().height;
+            if (gridX >= bx && gridX < bx + bw && gridY >= by && gridY < by + bh) {
                 return b;
             }
         }

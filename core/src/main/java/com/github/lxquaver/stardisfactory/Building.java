@@ -222,6 +222,15 @@ public class Building {
         }
     }
 
+    public static int getSellPriceFor(PlanterCrop crop) {
+        if (crop == null) return 0;
+        switch (crop) {
+            case TOMATO: return 10;
+            case WHEAT:  return 5;
+            default:     return 0;
+        }
+    }
+
     // =========================
     // LOGIQUE CONVOYEUR (CONVEYOR)
     // =========================
@@ -304,6 +313,23 @@ public class Building {
         if (!isHQ()) return 0;
         if (crop == PlanterCrop.TOMATO) return hqTomatoes;
         if (crop == PlanterCrop.WHEAT) return hqWheat;
+        return 0;
+    }
+
+    public int removeFromHQStock(PlanterCrop crop, int amount) {
+        if (!isHQ()) return 0;
+        if (amount <= 0) return 0;
+
+        if (crop == PlanterCrop.TOMATO) {
+            int sold = Math.min(amount, hqTomatoes);
+            hqTomatoes -= sold;
+            return sold;
+        }
+        if (crop == PlanterCrop.WHEAT) {
+            int sold = Math.min(amount, hqWheat);
+            hqWheat -= sold;
+            return sold;
+        }
         return 0;
     }
 
