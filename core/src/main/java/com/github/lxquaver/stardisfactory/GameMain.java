@@ -213,15 +213,22 @@ public class GameMain extends ApplicationAdapter {
         Slider.SliderStyle sliderStyle = new Slider.SliderStyle();
         sliderStyle.background = skin.newDrawable("white", Color.DARK_GRAY);
         // On grossit le bouton (knob)
-        sliderStyle.knob = skin.newDrawable("white", Color.ROYAL);
+        sliderStyle.knob = skin.newDrawable("white", Color.WHITE);
         sliderStyle.knob.setMinWidth(20);
         sliderStyle.knob.setMinHeight(40);
         skin.add("default-horizontal", sliderStyle);
 
         // Style des cases à cocher
         CheckBox.CheckBoxStyle checkBoxStyle = new CheckBox.CheckBoxStyle();
-        checkBoxStyle.checkboxOn = skin.newDrawable("white", Color.GREEN);
-        checkBoxStyle.checkboxOff = skin.newDrawable("white", Color.RED);
+        // On grossit la case à cocher
+        checkBoxStyle.checkboxOn = skin.newDrawable("white", Color.WHITE);
+        checkBoxStyle.checkboxOn.setMinWidth(20);
+        checkBoxStyle.checkboxOn.setMinHeight(20);
+
+        checkBoxStyle.checkboxOff = skin.newDrawable("white", Color.GRAY);
+        checkBoxStyle.checkboxOff.setMinWidth(20);
+        checkBoxStyle.checkboxOff.setMinHeight(20);
+
         checkBoxStyle.font = skin.getFont("default");
         skin.add("default", checkBoxStyle);
 
@@ -397,8 +404,11 @@ public class GameMain extends ApplicationAdapter {
 
         musicCheckBox = new CheckBox(" Musique Active", skin);
         musicCheckBox.setChecked(musicEnabled);
-        musicCheckBox.addListener(new ClickListener() {
-            @Override public void clicked(InputEvent event, float x, float y) {
+
+        // Utilisation de ChangeListener pour la CheckBox aussi
+        musicCheckBox.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
                 musicEnabled = musicCheckBox.isChecked();
                 updateMusicVolume(volumeSlider.getValue());
             }
