@@ -4,6 +4,7 @@ import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Input.Keys;
+import com.badlogic.gdx.audio.Music;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Pixmap;
@@ -18,10 +19,7 @@ import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
-import com.badlogic.gdx.scenes.scene2d.ui.ButtonGroup;
-import com.badlogic.gdx.scenes.scene2d.ui.Skin;
-import com.badlogic.gdx.scenes.scene2d.ui.Table;
-import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
@@ -31,83 +29,121 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+/**
+ * Le cœur du jeu ! C'est ici que tout se passe : affichage, logique, menus...
+ */
 public class GameMain extends ApplicationAdapter {
 
-    // --- Rendu Jeu ---
-    private SpriteBatch batch;
-    private ShapeRenderer shapeRenderer;
-    private OrthographicCamera camera;
-    private FitViewport viewport;
+    // --- Outils de Rendu (Le pinceau et la toile) ---
+    private SpriteBatch batch; // Pour dessiner les images (textures)
+    private ShapeRenderer shapeRenderer; // Pour dessiner des formes géométriques (carrés de couleur)
+    private OrthographicCamera camera; // Notre caméra 2D
+    private FitViewport viewport; // Gère le redimensionnement de la fenêtre
 
-    // --- UI ---
-    private Stage uiStage;
-    private Skin skin;
-    private ButtonGroup<TextButton> toolGroup;
-    private ButtonGroup<TextButton> buildingGroup;
+    // --- Interface Utilisateur (UI) ---
+    private Stage uiStage; // La scène qui contient tous les boutons et fenêtres
+    private Skin skin; // Le style visuel de l'UI (couleurs, polices...)
+    private ButtonGroup<TextButton> toolGroup; // Groupe pour les outils (un seul actif à la fois)
+    private ButtonGroup<TextButton> buildingGroup; // Groupe pour les bâtiments
 
-    // Popup planter
-    private com.badlogic.gdx.scenes.scene2d.ui.Window planterWindow;
+    // Éléments des Menus
+    private Table mainMenuTable;
+    private Window pauseWindow;
+    private TextField nameField;
+    private Slider volumeSlider;
+    private CheckBox musicCheckBox;
+    private Label statsLabel;
+
+    // Fenêtre contextuelle pour la jardinière
+    private Window planterWindow;
     private Building currentPlanterForUI = null;
 
-    // --- Player ---
+    // --- Audio ---
+    private Music backgroundMusic;
+
+    // --- Le Joueur ---
     private Texture playerTextureImg;
     private Sprite playerSprite;
     private Vector2 playerPos;
-    private final float MOVE_SPEED = 5f;
+    private final float MOVE_SPEED = 5f; // Vitesse de déplacement
 
-    // --- Tiles textures (Terrain) ---
-    // Mets tes images dans: lwjgl3/assets/
+    // --- Textures du Terrain ---
+    // Ces images doivent être dans le dossier 'assets'
     private Texture tileDirt;
     private Texture tileGrass;
     private Texture tileTilled;
     private Texture tileRoad;
 
-    // --- World Data ---
-    private static final int MAP_SIZE = 100;
-    private static final int MAP_OFFSET = 50;
+    // --- Données du Monde ---
+    private static final int MAP_SIZE = 100; // Taille de la carte (100x100 cases)
+    private static final int MAP_OFFSET = 50; // Décalage pour centrer (0,0) au milieu
 
-    private Terrain[][] terrainGrid;
-    private List<Building> buildings;
-    private List<Crop> crops;
+    private Terrain[][] terrainGrid; // La grille de sol
+    private List<Building> buildings; // La liste de tous les bâtiments posés
 
-    // --- État ---
-    private String selectedTool = "NONE"; // "TILL" "GRASS" "ROAD" "CLEAR" "BULLDOZE" / "NONE"
-    private Building.Type selectedBuildingType = null;
-    private int currentRotation = 0; // 0: Nord, 1: Est, 2: Sud, 3: Ouest
+    // --- État de la sélection ---
+    private String selectedTool = "NONE"; // Outil actuel (ex: "TILL" pour labourer)
+    private Building.Type selectedBuildingType = null; // Bâtiment à construire
+    private int currentRotation = 0; // Rotation actuelle (0: Nord, 1: Est, 2: Sud, 3: Ouest)
+
+    // --- État du Jeu (Menu, Jeu, Pause) ---
+    private enum GameState { MENU, PLAYING, PAUSED }
+    private GameState currentState = GameState.MENU;
+
+    // --- Statistiques et Paramètres ---
+    private String playerName = "Joueur";
+    private float musicVolume = 0.5f;
+    private boolean musicEnabled = true;
+    private int totalTomatoes = 0; // Compteur de tomates récoltées
+    private int totalWheat = 0;    // Compteur de blé récolté
 
     @Override
     public void create() {
+        // Initialisation des outils graphiques
         batch = new SpriteBatch();
         shapeRenderer = new ShapeRenderer();
         camera = new OrthographicCamera();
-        viewport = new FitViewport(20, 15, camera);
+        viewport = new FitViewport(20, 15, camera); // On voit 20x15 mètres du monde
 
+        // Initialisation de l'UI
         uiStage = new Stage(new ScreenViewport());
-        Gdx.input.setInputProcessor(uiStage);
+        Gdx.input.setInputProcessor(uiStage); // L'UI reçoit les clics en premier
         createUI();
 
-        // --- Charger textures tiles ---
+        // Chargement des images (Textures)
         tileDirt = new Texture("tile_dirt.png");
         tileGrass = new Texture("tile_grass.png");
         tileTilled = new Texture("tile_tilled.png");
         tileRoad = new Texture("tile_road.png");
 
-        // Pixel-art net (évite le flou)
+        // On garde le pixel-art bien net (pas de flou quand on zoome)
         tileDirt.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileGrass.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileTilled.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileRoad.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
 
-        // Joueur
+        // Chargement de la musique (si le fichier existe)
+        try {
+            if (Gdx.files.internal("music.mp3").exists()) {
+                backgroundMusic = Gdx.audio.newMusic(Gdx.files.internal("music.mp3"));
+                backgroundMusic.setLooping(true); // Jouer en boucle
+                backgroundMusic.setVolume(musicVolume);
+            } else {
+                System.out.println("Fichier music.mp3 introuvable dans assets/");
+            }
+        } catch (Exception e) {
+            System.out.println("Erreur chargement musique: " + e.getMessage());
+        }
+
+        // Création du joueur
         playerTextureImg = new Texture("player.png");
         playerSprite = new Sprite(playerTextureImg);
-        playerSprite.setSize(1f, 1f);
+        playerSprite.setSize(1f, 1f); // Le joueur fait 1x1 case
         playerPos = new Vector2(0, 0);
 
-        // Monde
+        // Création du monde vide
         terrainGrid = new Terrain[MAP_SIZE][MAP_SIZE];
         buildings = new ArrayList<>();
-        crops = new ArrayList<>();
 
         for (int x = 0; x < MAP_SIZE; x++) {
             for (int y = 0; y < MAP_SIZE; y++) {
@@ -115,74 +151,121 @@ public class GameMain extends ApplicationAdapter {
             }
         }
 
-        // Données de test
+        // Un petit carré d'herbe pour tester au centre
         terrainGrid[50][50] = new Terrain(Terrain.Type.GRASS);
         terrainGrid[51][50] = new Terrain(Terrain.Type.GRASS);
         terrainGrid[50][51] = new Terrain(Terrain.Type.GRASS);
         terrainGrid[51][51] = new Terrain(Terrain.Type.GRASS);
+
+        // On commence sur le menu principal
+        showMainMenu();
     }
 
+    /**
+     * Crée toute l'interface utilisateur (Menus, HUD, Styles).
+     */
     private void createUI() {
         skin = new Skin();
 
+        // Création d'une texture blanche de 1x1 pixel pour dessiner les boutons
         Pixmap pixmap = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
         pixmap.setColor(Color.WHITE);
         pixmap.fill();
         skin.add("white", new Texture(pixmap));
-        skin.add("default", new BitmapFont());
+        skin.add("default", new BitmapFont()); // Police par défaut
         pixmap.dispose();
 
+        // --- Définition des styles (apparence) ---
+
+        // Style des boutons texte
         TextButton.TextButtonStyle textButtonStyle = new TextButton.TextButtonStyle();
         textButtonStyle.up = skin.newDrawable("white", Color.DARK_GRAY);
         textButtonStyle.down = skin.newDrawable("white", Color.GRAY);
-        textButtonStyle.checked = skin.newDrawable("white", Color.ROYAL);
+        textButtonStyle.checked = skin.newDrawable("white", Color.ROYAL); // Bleu quand sélectionné
         textButtonStyle.over = skin.newDrawable("white", Color.LIGHT_GRAY);
         textButtonStyle.font = skin.getFont("default");
         skin.add("default", textButtonStyle);
 
-        // ===== BARRE OUTILS EN BAS =====
+        // Style des étiquettes (Labels)
+        Label.LabelStyle labelStyle = new Label.LabelStyle();
+        labelStyle.font = skin.getFont("default");
+        labelStyle.fontColor = Color.WHITE;
+        skin.add("default", labelStyle);
+
+        // Style des champs de texte
+        TextField.TextFieldStyle textFieldStyle = new TextField.TextFieldStyle();
+        textFieldStyle.font = skin.getFont("default");
+        textFieldStyle.fontColor = Color.WHITE;
+        textFieldStyle.cursor = skin.newDrawable("white", Color.WHITE);
+        textFieldStyle.selection = skin.newDrawable("white", Color.BLUE);
+        textFieldStyle.background = skin.newDrawable("white", Color.DARK_GRAY);
+        skin.add("default", textFieldStyle);
+
+        // Style des sliders (barres de volume)
+        Slider.SliderStyle sliderStyle = new Slider.SliderStyle();
+        sliderStyle.background = skin.newDrawable("white", Color.DARK_GRAY);
+        sliderStyle.knob = skin.newDrawable("white", Color.ROYAL);
+        skin.add("default-horizontal", sliderStyle);
+
+        // Style des cases à cocher
+        CheckBox.CheckBoxStyle checkBoxStyle = new CheckBox.CheckBoxStyle();
+        checkBoxStyle.checkboxOn = skin.newDrawable("white", Color.GREEN);
+        checkBoxStyle.checkboxOff = skin.newDrawable("white", Color.RED);
+        checkBoxStyle.font = skin.getFont("default");
+        skin.add("default", checkBoxStyle);
+
+        // Style des fenêtres
+        Window.WindowStyle windowStyle = new Window.WindowStyle(
+                skin.getFont("default"),
+                Color.WHITE,
+                skin.newDrawable("white", new Color(0.1f, 0.1f, 0.1f, 0.9f)) // Fond noir semi-transparent
+        );
+        skin.add("default", windowStyle);
+
+        // Création des différentes parties de l'UI
+        createGameHUD();
+        createMainMenuUI();
+        createPauseMenuUI();
+    }
+
+    /**
+     * Crée l'interface visible pendant le jeu (Barres d'outils, Stats).
+     */
+    private void createGameHUD() {
+        // --- Barre d'outils en bas (Terrain) ---
         Table bottom = new Table();
         bottom.bottom();
         bottom.setFillParent(true);
+        bottom.setName("HUD_BOTTOM"); // Nom pour pouvoir la cacher/montrer facilement
 
         TextButton btnTill = new TextButton("Labourer", skin);
         TextButton btnGrass = new TextButton("Herbe", skin);
         TextButton btnRoad = new TextButton("Route", skin);
         TextButton btnClear = new TextButton("Nettoyer", skin);
 
+        // Logique des boutons : quand on clique, on sélectionne l'outil
         btnTill.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedTool = "TILL";
-                selectedBuildingType = null;
-                closePlanterPopup();
-                if (buildingGroup != null) buildingGroup.uncheckAll();
+                selectTool("TILL");
             }
         });
         btnGrass.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedTool = "GRASS";
-                selectedBuildingType = null;
-                closePlanterPopup();
-                if (buildingGroup != null) buildingGroup.uncheckAll();
+                selectTool("GRASS");
             }
         });
         btnRoad.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedTool = "ROAD";
-                selectedBuildingType = null;
-                closePlanterPopup();
-                if (buildingGroup != null) buildingGroup.uncheckAll();
+                selectTool("ROAD");
             }
         });
         btnClear.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedTool = "CLEAR";
-                selectedBuildingType = null;
-                closePlanterPopup();
-                if (buildingGroup != null) buildingGroup.uncheckAll();
+                selectTool("CLEAR");
             }
         });
 
+        // Groupe pour qu'un seul bouton soit actif à la fois
         toolGroup = new ButtonGroup<>(btnTill, btnGrass, btnRoad, btnClear);
         toolGroup.setMaxCheckCount(1);
         toolGroup.setMinCheckCount(0);
@@ -195,10 +278,11 @@ public class GameMain extends ApplicationAdapter {
 
         uiStage.addActor(bottom);
 
-        // ===== BARRE BUILDINGS A GAUCHE =====
+        // --- Barre de bâtiments à gauche ---
         Table left = new Table();
         left.setFillParent(true);
         left.left().top().pad(10);
+        left.setName("HUD_LEFT");
 
         TextButton btnHQ = new TextButton("HQ", skin);
         TextButton btnCow = new TextButton("Cow Coop", skin);
@@ -208,42 +292,27 @@ public class GameMain extends ApplicationAdapter {
 
         btnHQ.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedBuildingType = Building.Type.MAIN_HQ;
-                selectedTool = "NONE";
-                closePlanterPopup();
-                toolGroup.uncheckAll();
+                selectBuilding(Building.Type.MAIN_HQ);
             }
         });
         btnCow.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedBuildingType = Building.Type.COW_COOP;
-                selectedTool = "NONE";
-                closePlanterPopup();
-                toolGroup.uncheckAll();
+                selectBuilding(Building.Type.COW_COOP);
             }
         });
         btnConv.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedBuildingType = Building.Type.CONVEYOR_BELT;
-                selectedTool = "NONE";
-                closePlanterPopup();
-                toolGroup.uncheckAll();
+                selectBuilding(Building.Type.CONVEYOR_BELT);
             }
         });
         btnPlanter.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedBuildingType = Building.Type.PLANTER;
-                selectedTool = "NONE";
-                closePlanterPopup();
-                toolGroup.uncheckAll();
+                selectBuilding(Building.Type.PLANTER);
             }
         });
         btnBulldoze.addListener(new ClickListener() {
             @Override public void clicked(InputEvent event, float x, float y) {
-                selectedTool = "BULLDOZE";
-                selectedBuildingType = null;
-                closePlanterPopup();
-                toolGroup.uncheckAll();
+                selectTool("BULLDOZE");
             }
         });
 
@@ -260,248 +329,373 @@ public class GameMain extends ApplicationAdapter {
 
         uiStage.addActor(left);
 
-        // ===== BOUTONS SAVE/LOAD EN HAUT A DROITE =====
-        Table topRight = new Table();
-        topRight.setFillParent(true);
-        topRight.top().right().pad(10);
+        // --- Stats en haut à gauche ---
+        Table statsTable = new Table();
+        statsTable.top().left().pad(10);
+        statsTable.setFillParent(true);
+        statsTable.setName("HUD_STATS");
 
-        TextButton btnSave = new TextButton("Save (F5)", skin);
-        TextButton btnLoad = new TextButton("Load (F9)", skin);
+        statsLabel = new Label("Tomates: 0 | Ble: 0", skin);
+        statsTable.add(statsLabel);
 
-        btnSave.addListener(new ClickListener() { @Override public void clicked(InputEvent event, float x, float y) { saveGame(); }});
-        btnLoad.addListener(new ClickListener() { @Override public void clicked(InputEvent event, float x, float y) { loadGame(); }});
+        uiStage.addActor(statsTable);
+    }
 
-        topRight.add(btnSave).width(120).pad(5).row();
-        topRight.add(btnLoad).width(120).pad(5).row();
+    // Méthodes utilitaires pour simplifier la sélection
+    private void selectTool(String toolName) {
+        selectedTool = toolName;
+        selectedBuildingType = null;
+        closePlanterPopup();
+        if (buildingGroup != null) buildingGroup.uncheckAll();
+    }
 
-        uiStage.addActor(topRight);
+    private void selectBuilding(Building.Type type) {
+        selectedBuildingType = type;
+        selectedTool = "NONE";
+        closePlanterPopup();
+        if (toolGroup != null) toolGroup.uncheckAll();
+    }
+
+    /**
+     * Crée le Menu Principal (Pseudo, Volume, Jouer).
+     */
+    private void createMainMenuUI() {
+        mainMenuTable = new Table();
+        mainMenuTable.setFillParent(true);
+        mainMenuTable.center();
+
+        Label titleLabel = new Label("STARDIS FACTORY", skin);
+        titleLabel.setFontScale(2f);
+
+        Label nameLabel = new Label("Pseudo:", skin);
+        nameField = new TextField("Joueur", skin);
+
+        Label volumeLabel = new Label("Volume Musique:", skin);
+        volumeSlider = new Slider(0f, 1f, 0.1f, false, skin);
+        volumeSlider.setValue(musicVolume);
+        volumeSlider.addListener(new ClickListener() {
+            @Override public void touchUp(InputEvent event, float x, float y, int pointer, int button) {
+                updateMusicVolume(volumeSlider.getValue());
+            }
+        });
+
+        musicCheckBox = new CheckBox(" Musique Active", skin);
+        musicCheckBox.setChecked(musicEnabled);
+        musicCheckBox.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent event, float x, float y) {
+                musicEnabled = musicCheckBox.isChecked();
+                updateMusicVolume(volumeSlider.getValue());
+            }
+        });
+
+        TextButton playBtn = new TextButton("JOUER", skin);
+        playBtn.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent event, float x, float y) {
+                startGame();
+            }
+        });
+
+        TextButton quitBtn = new TextButton("QUITTER", skin);
+        quitBtn.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent event, float x, float y) {
+                Gdx.app.exit();
+            }
+        });
+
+        // Mise en page du menu
+        mainMenuTable.add(titleLabel).padBottom(50).colspan(2).row();
+        mainMenuTable.add(nameLabel).right().pad(10);
+        mainMenuTable.add(nameField).width(200).pad(10).row();
+        mainMenuTable.add(volumeLabel).right().pad(10);
+        mainMenuTable.add(volumeSlider).width(200).pad(10).row();
+        mainMenuTable.add(musicCheckBox).colspan(2).pad(10).row();
+        mainMenuTable.add(playBtn).width(200).height(50).padTop(30).colspan(2).row();
+        mainMenuTable.add(quitBtn).width(200).height(50).padTop(10).colspan(2).row();
+
+        uiStage.addActor(mainMenuTable);
+    }
+
+    /**
+     * Crée le Menu de Pause (Echap).
+     */
+    private void createPauseMenuUI() {
+        pauseWindow = new Window("PAUSE", skin);
+        pauseWindow.setModal(true); // Bloque les clics en dehors
+        pauseWindow.setMovable(false);
+        pauseWindow.pad(20);
+
+        Label volumeLabel = new Label("Volume:", skin);
+        final Slider pauseVolumeSlider = new Slider(0f, 1f, 0.1f, false, skin);
+        pauseVolumeSlider.setValue(musicVolume);
+        pauseVolumeSlider.addListener(new ClickListener() {
+            @Override public void touchUp(InputEvent event, float x, float y, int pointer, int button) {
+                updateMusicVolume(pauseVolumeSlider.getValue());
+            }
+        });
+
+        TextButton resumeBtn = new TextButton("Reprendre", skin);
+        resumeBtn.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent event, float x, float y) {
+                resumeGame();
+            }
+        });
+
+        TextButton saveQuitBtn = new TextButton("Sauvegarder & Menu", skin);
+        saveQuitBtn.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent event, float x, float y) {
+                saveGame();
+                showMainMenu();
+            }
+        });
+
+        TextButton abandonBtn = new TextButton("Abandonner (Sans Save)", skin);
+        abandonBtn.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent event, float x, float y) {
+                showMainMenu();
+            }
+        });
+
+        pauseWindow.add(volumeLabel).pad(5);
+        pauseWindow.add(pauseVolumeSlider).width(150).pad(5).row();
+        pauseWindow.add(resumeBtn).width(200).pad(5).colspan(2).row();
+        pauseWindow.add(saveQuitBtn).width(200).pad(5).colspan(2).row();
+        pauseWindow.add(abandonBtn).width(200).pad(5).colspan(2).row();
+
+        pauseWindow.pack();
+        // On centre la fenêtre
+        pauseWindow.setPosition(
+                Gdx.graphics.getWidth() / 2f - pauseWindow.getWidth() / 2f,
+                Gdx.graphics.getHeight() / 2f - pauseWindow.getHeight() / 2f
+        );
+
+        uiStage.addActor(pauseWindow);
+        pauseWindow.setVisible(false); // Caché par défaut
+    }
+
+    private void updateMusicVolume(float volume) {
+        musicVolume = volume;
+        if (backgroundMusic != null) {
+            if (musicEnabled) {
+                backgroundMusic.setVolume(musicVolume);
+                if (!backgroundMusic.isPlaying()) backgroundMusic.play();
+            } else {
+                backgroundMusic.pause();
+            }
+        }
+    }
+
+    // --- Gestion des États ---
+
+    private void showMainMenu() {
+        currentState = GameState.MENU;
+        mainMenuTable.setVisible(true);
+        pauseWindow.setVisible(false);
+        setGameHUDVisible(false); // On cache le HUD du jeu
+
+        // Reset input processor pour être sûr que l'UI reçoit les clics
+        Gdx.input.setInputProcessor(uiStage);
+
+        // On joue la musique dans le menu aussi
+        if (backgroundMusic != null && musicEnabled && !backgroundMusic.isPlaying()) {
+            backgroundMusic.play();
+        }
+    }
+
+    private void startGame() {
+        playerName = nameField.getText();
+        musicVolume = volumeSlider.getValue();
+        musicEnabled = musicCheckBox.isChecked();
+
+        updateMusicVolume(musicVolume);
+
+        currentState = GameState.PLAYING;
+        mainMenuTable.setVisible(false);
+        pauseWindow.setVisible(false);
+        setGameHUDVisible(true); // On affiche le HUD du jeu
+    }
+
+    private void resumeGame() {
+        currentState = GameState.PLAYING;
+        pauseWindow.setVisible(false);
+    }
+
+    private void pauseGame() {
+        currentState = GameState.PAUSED;
+        pauseWindow.setVisible(true);
+        pauseWindow.toFront(); // Met la fenêtre au premier plan
+    }
+
+    private void setGameHUDVisible(boolean visible) {
+        for (com.badlogic.gdx.scenes.scene2d.Actor actor : uiStage.getActors()) {
+            // On cherche tous les éléments qui commencent par "HUD_"
+            if (actor.getName() != null && actor.getName().startsWith("HUD_")) {
+                actor.setVisible(visible);
+            }
+        }
     }
 
     @Override
     public void render() {
         float dt = Gdx.graphics.getDeltaTime();
 
-        handleInput(dt);
+        // --- Logique du jeu (Mise à jour) ---
+        if (currentState == GameState.PLAYING) {
+            handleInput(dt);
 
-        // Update buildings (planter growth)
-        for (Building b : buildings) {
-            b.update(dt);
-        }
+            // On met à jour tous les bâtiments (pousse des plantes, convoyeurs...)
+            for (Building b : buildings) {
+                b.update(dt);
+            }
+            updateConveyors(dt);
 
-        updateConveyors(dt);
-
-        camera.position.set(playerPos.x, playerPos.y, 0);
-        camera.update();
-
-        ScreenUtils.clear(0.1f, 0.1f, 0.1f, 1);
-
-        // Souris monde (pour ghost / bulldoze)
-        Vector3 worldMouse = camera.unproject(new Vector3(Gdx.input.getX(), Gdx.input.getY(), 0));
-        int mouseWorldX = MathUtils.floor(worldMouse.x);
-        int mouseWorldY = MathUtils.floor(worldMouse.y);
-
-        // ===== 1) RENDU TERRAIN EN IMAGES (SpriteBatch) =====
-        batch.setProjectionMatrix(camera.combined);
-        batch.begin();
-
-        for (int x = 0; x < MAP_SIZE; x++) {
-            for (int y = 0; y < MAP_SIZE; y++) {
-                Terrain t = terrainGrid[x][y];
-                Texture tex;
-
-                switch (t.getType()) {
-                    case DIRT:   tex = tileDirt; break;
-                    case GRASS:  tex = tileGrass; break;
-                    case TILLED: tex = tileTilled; break;
-                    case ROAD:   tex = tileRoad; break;
-                    default:     tex = tileDirt; break;
-                }
-
-                float worldX = x - MAP_OFFSET;
-                float worldY = y - MAP_OFFSET;
-
-                batch.draw(tex, worldX, worldY, 1f, 1f);
+            // La caméra suit le joueur
+            camera.position.set(playerPos.x, playerPos.y, 0);
+            camera.update();
+        } else if (currentState == GameState.PAUSED) {
+            // En pause, on écoute juste Echap pour reprendre
+            if (Gdx.input.isKeyJustPressed(Keys.ESCAPE)) {
+                resumeGame();
             }
         }
+        // En MENU, pas de logique de jeu
 
-        batch.end();
+        // --- Rendu Graphique (Dessin) ---
+        ScreenUtils.clear(0.1f, 0.1f, 0.1f, 1); // Fond gris foncé
 
-        // ===== 2) RENDU BUILDINGS + GHOST/HOVER (ShapeRenderer Filled) =====
-        shapeRenderer.setProjectionMatrix(camera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        // Si on joue ou qu'on est en pause, on dessine le monde en arrière-plan
+        if (currentState == GameState.PLAYING || currentState == GameState.PAUSED) {
 
-        // Buildings
-        for (Building b : buildings) {
-            float wx = b.getGridX() - MAP_OFFSET;
-            float wy = b.getGridY() - MAP_OFFSET;
-
-            switch (b.getType()) {
-                case MAIN_HQ:
-                    shapeRenderer.setColor(Color.BLUE);
-                    break;
-                case COW_COOP:
-                    shapeRenderer.setColor(Color.BROWN);
-                    break;
-                case CONVEYOR_BELT:
-                    shapeRenderer.setColor(Color.GRAY);
-                    break;
-
-                case PLANTER:
-                    // Couleur selon contenu/état
-                    if (b.isPlanterEmpty()) {
-                        shapeRenderer.setColor(new Color(0.55f, 0.35f, 0.15f, 1f)); // marron vide
-                    } else if (b.isPlanterReady()) {
-                        if (b.getPlanterCrop() == Building.PlanterCrop.TOMATO) {
-                            shapeRenderer.setColor(new Color(0.9f, 0.2f, 0.2f, 1f)); // rouge prêt
-                        } else {
-                            shapeRenderer.setColor(new Color(0.95f, 0.8f, 0.2f, 1f)); // jaune prêt
-                        }
-                    } else {
-                        if (b.getPlanterCrop() == Building.PlanterCrop.TOMATO) {
-                            shapeRenderer.setColor(new Color(0.6f, 0.15f, 0.15f, 1f)); // rouge sombre pousse
-                        } else {
-                            shapeRenderer.setColor(new Color(0.6f, 0.5f, 0.15f, 1f)); // jaune sombre pousse
-                        }
+            // 1) Dessiner le terrain (Terre, Herbe...)
+            batch.setProjectionMatrix(camera.combined);
+            batch.begin();
+            for (int x = 0; x < MAP_SIZE; x++) {
+                for (int y = 0; y < MAP_SIZE; y++) {
+                    Terrain t = terrainGrid[x][y];
+                    Texture tex;
+                    switch (t.getType()) {
+                        case DIRT:   tex = tileDirt; break;
+                        case GRASS:  tex = tileGrass; break;
+                        case TILLED: tex = tileTilled; break;
+                        case ROAD:   tex = tileRoad; break;
+                        default:     tex = tileDirt; break;
                     }
-                    break;
+                    batch.draw(tex, x - MAP_OFFSET, y - MAP_OFFSET, 1f, 1f);
+                }
+            }
+            batch.end();
 
-                default:
-                    shapeRenderer.setColor(Color.WHITE);
-                    break;
+            // 2) Dessiner les bâtiments (Carrés de couleur)
+            shapeRenderer.setProjectionMatrix(camera.combined);
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+            for (Building b : buildings) {
+                float wx = b.getGridX() - MAP_OFFSET;
+                float wy = b.getGridY() - MAP_OFFSET;
+
+                // Choix de la couleur selon le type
+                switch (b.getType()) {
+                    case MAIN_HQ: shapeRenderer.setColor(Color.BLUE); break;
+                    case COW_COOP: shapeRenderer.setColor(Color.BROWN); break;
+                    case CONVEYOR_BELT: shapeRenderer.setColor(Color.GRAY); break;
+                    case PLANTER:
+                        // Couleur changeante selon l'état de la plante
+                        if (b.isPlanterEmpty()) shapeRenderer.setColor(new Color(0.55f, 0.35f, 0.15f, 1f));
+                        else if (b.isPlanterReady()) shapeRenderer.setColor(b.getPlanterCrop() == Building.PlanterCrop.TOMATO ? new Color(0.9f, 0.2f, 0.2f, 1f) : new Color(0.95f, 0.8f, 0.2f, 1f));
+                        else shapeRenderer.setColor(b.getPlanterCrop() == Building.PlanterCrop.TOMATO ? new Color(0.6f, 0.15f, 0.15f, 1f) : new Color(0.6f, 0.5f, 0.15f, 1f));
+                        break;
+                    default: shapeRenderer.setColor(Color.WHITE); break;
+                }
+                shapeRenderer.rect(wx, wy, b.getType().width, b.getType().height);
+
+                // Si c'est un convoyeur avec un objet, on dessine l'objet dessus
+                if (b.isConveyor() && b.hasItem()) {
+                    shapeRenderer.setColor(b.getHeldItem() == Building.PlanterCrop.TOMATO ? Color.RED : Color.YELLOW);
+                    float progress = b.getTransportProgress();
+                    float itemX = wx + 0.25f;
+                    float itemY = wy + 0.25f;
+
+                    // Animation de déplacement
+                    switch (b.getRotation()) {
+                        case 0: itemY += progress * 0.5f; break; // Nord
+                        case 1: itemX += progress * 0.5f; break; // Est
+                        case 2: itemY -= progress * 0.5f; break; // Sud
+                        case 3: itemX -= progress * 0.5f; break; // Ouest
+                    }
+                    shapeRenderer.rect(itemX, itemY, 0.5f, 0.5f);
+                }
             }
 
-            shapeRenderer.rect(wx, wy, b.getType().width, b.getType().height);
+            // 3) Dessiner les prévisualisations (Ghost) et la sélection
+            Vector3 worldMouse = camera.unproject(new Vector3(Gdx.input.getX(), Gdx.input.getY(), 0));
+            int mouseWorldX = MathUtils.floor(worldMouse.x);
+            int mouseWorldY = MathUtils.floor(worldMouse.y);
 
-            // Si c'est un convoyeur avec un item, on dessine un petit carré dessus
-            if (b.isConveyor() && b.hasItem()) {
-                if (b.getHeldItem() == Building.PlanterCrop.TOMATO) {
-                    shapeRenderer.setColor(Color.RED);
-                } else {
+            if (currentState == GameState.PLAYING) {
+                // Case sous la souris (Rouge si hors de portée, Blanc si ok)
+                if (!selectedTool.equals("NONE") && selectedBuildingType == null && !selectedTool.equals("BULLDOZE")) {
+                    shapeRenderer.setColor(isInInteractionRange(mouseWorldX, mouseWorldY) ? new Color(1f, 1f, 1f, 0.2f) : new Color(1f, 0f, 0f, 0.2f));
+                    shapeRenderer.rect(mouseWorldX, mouseWorldY, 1, 1);
+                }
+
+                // Fantôme du bâtiment à construire
+                if (selectedBuildingType != null) {
+                    boolean ok = isInInteractionRange(mouseWorldX, mouseWorldY) && canPlaceBuilding(selectedBuildingType, mouseWorldX + MAP_OFFSET, mouseWorldY + MAP_OFFSET);
+                    shapeRenderer.setColor(ok ? new Color(0f, 1f, 0f, 0.25f) : new Color(1f, 0f, 0f, 0.25f));
+                    shapeRenderer.rect(mouseWorldX, mouseWorldY, selectedBuildingType.width, selectedBuildingType.height);
+
+                    // Indicateur de rotation (petit trait jaune)
                     shapeRenderer.setColor(Color.YELLOW);
-                }
-                // Position relative sur le convoyeur (animation)
-                float progress = b.getTransportProgress();
-                float itemX = wx + 0.25f;
-                float itemY = wy + 0.25f;
-
-                // Décalage selon rotation pour l'animation
-                switch (b.getRotation()) {
-                    case 0: itemY += progress * 0.5f; break; // Nord
-                    case 1: itemX += progress * 0.5f; break; // Est
-                    case 2: itemY -= progress * 0.5f; break; // Sud
-                    case 3: itemX -= progress * 0.5f; break; // Ouest
-                }
-
-                shapeRenderer.rect(itemX, itemY, 0.5f, 0.5f);
-            }
-        }
-
-        // Highlight simple (case) si outil terrain sélectionné
-        if (!selectedTool.equals("NONE") && selectedBuildingType == null && !selectedTool.equals("BULLDOZE")) {
-            if (isInInteractionRange(mouseWorldX, mouseWorldY)) {
-                shapeRenderer.setColor(1f, 1f, 1f, 0.2f);
-            } else {
-                shapeRenderer.setColor(1f, 0f, 0f, 0.2f);
-            }
-            shapeRenderer.rect(mouseWorldX, mouseWorldY, 1, 1);
-        }
-
-        // Ghost preview (bâtiment sélectionné)
-        if (selectedBuildingType != null) {
-            int gridX = mouseWorldX + MAP_OFFSET;
-            int gridY = mouseWorldY + MAP_OFFSET;
-
-            boolean inRange = isInInteractionRange(mouseWorldX, mouseWorldY);
-            boolean ok = inRange && canPlaceBuilding(selectedBuildingType, gridX, gridY);
-
-            if (ok) shapeRenderer.setColor(0f, 1f, 0f, 0.25f);
-            else shapeRenderer.setColor(1f, 0f, 0f, 0.25f);
-
-            shapeRenderer.rect(mouseWorldX, mouseWorldY, selectedBuildingType.width, selectedBuildingType.height);
-
-            // Indicateur de rotation (petit trait)
-            shapeRenderer.setColor(Color.YELLOW);
-            float cx = mouseWorldX + selectedBuildingType.width / 2f;
-            float cy = mouseWorldY + selectedBuildingType.height / 2f;
-            float len = 0.4f;
-            switch (currentRotation) {
-                case 0: shapeRenderer.rect(cx - 0.05f, cy, 0.1f, len); break; // Nord
-                case 1: shapeRenderer.rect(cx, cy - 0.05f, len, 0.1f); break; // Est
-                case 2: shapeRenderer.rect(cx - 0.05f, cy - len, 0.1f, len); break; // Sud
-                case 3: shapeRenderer.rect(cx - len, cy - 0.05f, len, 0.1f); break; // Ouest
-            }
-        }
-
-        // Bulldoze hover
-        if (selectedTool.equals("BULLDOZE")) {
-            Building hovered = getBuildingAtWorldCell(mouseWorldX, mouseWorldY);
-            if (hovered != null) {
-                float wx = hovered.getGridX() - MAP_OFFSET;
-                float wy = hovered.getGridY() - MAP_OFFSET;
-                shapeRenderer.setColor(1f, 0f, 0f, 0.25f);
-                shapeRenderer.rect(wx, wy, hovered.getType().width, hovered.getType().height);
-            }
-        }
-
-        shapeRenderer.end();
-
-        // ===== 3) GRILLE + FOOTPRINT (ShapeRenderer Line) =====
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-
-        // Grille
-        Gdx.gl.glEnable(Gdx.gl.GL_BLEND);
-        shapeRenderer.setColor(0.2f, 0.2f, 0.2f, 0.5f);
-        for (int x = 0; x <= MAP_SIZE; x++) {
-            shapeRenderer.line(x - MAP_OFFSET, -MAP_OFFSET, x - MAP_OFFSET, MAP_SIZE - MAP_OFFSET);
-        }
-        for (int y = 0; y <= MAP_SIZE; y++) {
-            shapeRenderer.line(-MAP_OFFSET, y - MAP_OFFSET, MAP_SIZE - MAP_OFFSET, y - MAP_OFFSET);
-        }
-
-        // Footprint outline (bâtiment sélectionné)
-        if (selectedBuildingType != null) {
-            int gridX = mouseWorldX + MAP_OFFSET;
-            int gridY = mouseWorldY + MAP_OFFSET;
-
-            boolean inRange = isInInteractionRange(mouseWorldX, mouseWorldY);
-            boolean ok = inRange && canPlaceBuilding(selectedBuildingType, gridX, gridY);
-
-            shapeRenderer.setColor(ok ? Color.GREEN : Color.RED);
-
-            // contour global
-            shapeRenderer.rect(mouseWorldX, mouseWorldY, selectedBuildingType.width, selectedBuildingType.height);
-
-            // sous-cases
-            for (int dx = 0; dx < selectedBuildingType.width; dx++) {
-                for (int dy = 0; dy < selectedBuildingType.height; dy++) {
-                    shapeRenderer.rect(mouseWorldX + dx, mouseWorldY + dy, 1, 1);
+                    float cx = mouseWorldX + selectedBuildingType.width / 2f;
+                    float cy = mouseWorldY + selectedBuildingType.height / 2f;
+                    float len = 0.4f;
+                    switch (currentRotation) {
+                        case 0: shapeRenderer.rect(cx - 0.05f, cy, 0.1f, len); break;
+                        case 1: shapeRenderer.rect(cx, cy - 0.05f, len, 0.1f); break;
+                        case 2: shapeRenderer.rect(cx - 0.05f, cy - len, 0.1f, len); break;
+                        case 3: shapeRenderer.rect(cx - len, cy - 0.05f, len, 0.1f); break;
+                    }
                 }
             }
+            shapeRenderer.end();
+
+            // 4) Dessiner la grille
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+            Gdx.gl.glEnable(Gdx.gl.GL_BLEND);
+            shapeRenderer.setColor(0.2f, 0.2f, 0.2f, 0.5f);
+            for (int x = 0; x <= MAP_SIZE; x++) shapeRenderer.line(x - MAP_OFFSET, -MAP_OFFSET, x - MAP_OFFSET, MAP_SIZE - MAP_OFFSET);
+            for (int y = 0; y <= MAP_SIZE; y++) shapeRenderer.line(-MAP_OFFSET, y - MAP_OFFSET, MAP_SIZE - MAP_OFFSET, y - MAP_OFFSET);
+            shapeRenderer.end();
+
+            // 5) Dessiner le joueur
+            batch.begin();
+            playerSprite.setPosition(playerPos.x - playerSprite.getWidth() / 2f, playerPos.y - playerSprite.getHeight() / 2f);
+            playerSprite.draw(batch);
+            batch.end();
+
+            // Si PAUSE, on assombrit l'écran pour faire joli
+            if (currentState == GameState.PAUSED) {
+                Gdx.gl.glEnable(Gdx.gl.GL_BLEND);
+                shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+                shapeRenderer.setColor(0f, 0f, 0f, 0.5f);
+                shapeRenderer.rect(-1000, -1000, 2000, 2000); // Grand rectangle noir transparent
+                shapeRenderer.end();
+            }
         }
 
-        shapeRenderer.end();
-
-        // ===== 4) JOUEUR (SpriteBatch) =====
-        batch.begin();
-        playerSprite.setPosition(
-                playerPos.x - playerSprite.getWidth() / 2f,
-                playerPos.y - playerSprite.getHeight() / 2f
-        );
-        playerSprite.draw(batch);
-        batch.end();
-
-        // ===== 5) UI =====
+        // ===== 6) DESSINER L'UI (Boutons, Menus...) =====
         uiStage.act(dt);
         uiStage.draw();
     }
 
     private void handleInput(float dt) {
+        // Pause (Echap)
+        if (Gdx.input.isKeyJustPressed(Keys.ESCAPE)) {
+            pauseGame();
+            return;
+        }
+
         // Save/Load clavier
         if (Gdx.input.isKeyJustPressed(Keys.F5)) saveGame();
         if (Gdx.input.isKeyJustPressed(Keys.F9)) loadGame();
-
-        // ESC annule
-        if (Gdx.input.isKeyJustPressed(Keys.ESCAPE)) cancelSelection();
 
         // Rotation (R)
         if (Gdx.input.isKeyJustPressed(Keys.R)) {
@@ -513,7 +707,7 @@ public class GameMain extends ApplicationAdapter {
             tryInteractWithPlanter();
         }
 
-        // Mouvement joueur
+        // Mouvement joueur (ZQSD ou Flèches)
         if (Gdx.input.isKeyPressed(Keys.W) || Gdx.input.isKeyPressed(Keys.Z) || Gdx.input.isKeyPressed(Keys.UP)) {
             playerPos.y += MOVE_SPEED * dt;
         }
@@ -535,12 +729,14 @@ public class GameMain extends ApplicationAdapter {
             return;
         }
 
-        // Clic gauche
+        // Clic gauche (Action principale)
         if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
+            // Si on clique sur l'UI, on ne fait rien dans le monde
             Vector2 stageCoords = uiStage.screenToStageCoordinates(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
             boolean hitUI = uiStage.hit(stageCoords.x, stageCoords.y, true) != null;
             if (hitUI) return;
 
+            // Conversion coordonnées écran -> coordonnées monde
             Vector3 worldPos = camera.unproject(new Vector3(Gdx.input.getX(), Gdx.input.getY(), 0));
             int worldGridX = MathUtils.floor(worldPos.x);
             int worldGridY = MathUtils.floor(worldPos.y);
@@ -586,17 +782,29 @@ public class GameMain extends ApplicationAdapter {
 
         if (nearbyPlanter == null) return;
 
-        // Si prêt -> récolter (pas de stockage pour l’instant)
+        // Si prêt -> récolter
         if (!nearbyPlanter.isPlanterEmpty() && nearbyPlanter.isPlanterReady()) {
             Building.PlanterCrop crop = nearbyPlanter.harvest();
             int amount = Building.getYieldFor(crop);
-            System.out.println("Harvest: " + crop + " +" + amount + " (stockage plus tard)");
+
+            // Mise à jour stats
+            if (crop == Building.PlanterCrop.TOMATO) totalTomatoes += amount;
+            if (crop == Building.PlanterCrop.WHEAT) totalWheat += amount;
+            updateStatsLabel();
+
+            System.out.println("Harvest: " + crop + " +" + amount);
             return;
         }
 
         // Si vide -> popup choix
         if (nearbyPlanter.isPlanterEmpty()) {
             openPlanterPopup(nearbyPlanter);
+        }
+    }
+
+    private void updateStatsLabel() {
+        if (statsLabel != null) {
+            statsLabel.setText("Tomates: " + totalTomatoes + " | Ble: " + totalWheat);
         }
     }
 
@@ -650,7 +858,7 @@ public class GameMain extends ApplicationAdapter {
 
         planterWindow.pack();
 
-        // Centre en pixels écran (ScreenViewport)
+        // Centre en pixels écran
         float cx = (Gdx.graphics.getWidth() - planterWindow.getWidth()) / 2f;
         float cy = (Gdx.graphics.getHeight() - planterWindow.getHeight()) / 2f;
         planterWindow.setPosition(cx, cy);
@@ -924,6 +1132,14 @@ public class GameMain extends ApplicationAdapter {
     public void resize(int width, int height) {
         viewport.update(width, height);
         uiStage.getViewport().update(width, height, true);
+
+        // Recentre la fenêtre de pause si visible
+        if (pauseWindow != null) {
+            pauseWindow.setPosition(
+                    width / 2f - pauseWindow.getWidth() / 2f,
+                    height / 2f - pauseWindow.getHeight() / 2f
+            );
+        }
     }
 
     @Override
@@ -937,6 +1153,8 @@ public class GameMain extends ApplicationAdapter {
         if (tileGrass != null) tileGrass.dispose();
         if (tileTilled != null) tileTilled.dispose();
         if (tileRoad != null) tileRoad.dispose();
+
+        if (backgroundMusic != null) backgroundMusic.dispose();
 
         uiStage.dispose();
         skin.dispose();
