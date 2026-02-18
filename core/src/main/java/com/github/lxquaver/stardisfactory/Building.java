@@ -74,6 +74,11 @@ public class Building {
     private float transportTimer = 0f; // Progression du transport (0 à 1 sec)
     private static final float TRANSPORT_TIME = 1.0f; // Temps pour traverser une case (en secondes)
 
+    // ====== ÉTAT HQ (MAIN_HQ) ======
+    // Stockage des ressources dans le QG
+    private int hqTomatoes = 0;
+    private int hqWheat = 0;
+
     /**
      * Crée un nouveau bâtiment.
      * @param type Le type de bâtiment (ex: PLANTER)
@@ -279,5 +284,31 @@ public class Building {
                 transportTimer = TRANSPORT_TIME;
             }
         }
+    }
+
+    // =========================
+    // LOGIQUE HQ (MAIN_HQ)
+    // =========================
+
+    public boolean isHQ() {
+        return type == Type.MAIN_HQ;
+    }
+
+    public void addToHQStock(PlanterCrop crop, int amount) {
+        if (!isHQ()) return;
+        if (crop == PlanterCrop.TOMATO) hqTomatoes += amount;
+        if (crop == PlanterCrop.WHEAT) hqWheat += amount;
+    }
+
+    public int getHQStock(PlanterCrop crop) {
+        if (!isHQ()) return 0;
+        if (crop == PlanterCrop.TOMATO) return hqTomatoes;
+        if (crop == PlanterCrop.WHEAT) return hqWheat;
+        return 0;
+    }
+
+    public void clearHQStock() {
+        hqTomatoes = 0;
+        hqWheat = 0;
     }
 }
