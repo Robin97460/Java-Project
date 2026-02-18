@@ -73,6 +73,7 @@ public class GameMain extends ApplicationAdapter {
     // --- État ---
     private String selectedTool = "NONE"; // "TILL" "GRASS" "ROAD" "CLEAR" "BULLDOZE" / "NONE"
     private Building.Type selectedBuildingType = null;
+    private int currentRotation = 0; // 0: Nord, 1: Est, 2: Sud, 3: Ouest
 
     @Override
     public void create() {
@@ -287,6 +288,8 @@ public class GameMain extends ApplicationAdapter {
             b.update(dt);
         }
 
+        updateConveyors(dt);
+
         camera.position.set(playerPos.x, playerPos.y, 0);
         camera.update();
 
@@ -368,6 +371,29 @@ public class GameMain extends ApplicationAdapter {
             }
 
             shapeRenderer.rect(wx, wy, b.getType().width, b.getType().height);
+
+            // Si c'est un convoyeur avec un item, on dessine un petit carré dessus
+            if (b.isConveyor() && b.hasItem()) {
+                if (b.getHeldItem() == Building.PlanterCrop.TOMATO) {
+                    shapeRenderer.setColor(Color.RED);
+                } else {
+                    shapeRenderer.setColor(Color.YELLOW);
+                }
+                // Position relative sur le convoyeur (animation)
+                float progress = b.getTransportProgress();
+                float itemX = wx + 0.25f;
+                float itemY = wy + 0.25f;
+
+                // Décalage selon rotation pour l'animation
+                switch (b.getRotation()) {
+                    case 0: itemY += progress * 0.5f; break; // Nord
+                    case 1: itemX += progress * 0.5f; break; // Est
+                    case 2: itemY -= progress * 0.5f; break; // Sud
+                    case 3: itemX -= progress * 0.5f; break; // Ouest
+                }
+
+                shapeRenderer.rect(itemX, itemY, 0.5f, 0.5f);
+            }
         }
 
         // Highlight simple (case) si outil terrain sélectionné
@@ -392,6 +418,18 @@ public class GameMain extends ApplicationAdapter {
             else shapeRenderer.setColor(1f, 0f, 0f, 0.25f);
 
             shapeRenderer.rect(mouseWorldX, mouseWorldY, selectedBuildingType.width, selectedBuildingType.height);
+
+            // Indicateur de rotation (petit trait)
+            shapeRenderer.setColor(Color.YELLOW);
+            float cx = mouseWorldX + selectedBuildingType.width / 2f;
+            float cy = mouseWorldY + selectedBuildingType.height / 2f;
+            float len = 0.4f;
+            switch (currentRotation) {
+                case 0: shapeRenderer.rect(cx - 0.05f, cy, 0.1f, len); break; // Nord
+                case 1: shapeRenderer.rect(cx, cy - 0.05f, len, 0.1f); break; // Est
+                case 2: shapeRenderer.rect(cx - 0.05f, cy - len, 0.1f, len); break; // Sud
+                case 3: shapeRenderer.rect(cx - len, cy - 0.05f, len, 0.1f); break; // Ouest
+            }
         }
 
         // Bulldoze hover
@@ -464,6 +502,11 @@ public class GameMain extends ApplicationAdapter {
 
         // ESC annule
         if (Gdx.input.isKeyJustPressed(Keys.ESCAPE)) cancelSelection();
+
+        // Rotation (R)
+        if (Gdx.input.isKeyJustPressed(Keys.R)) {
+            currentRotation = (currentRotation + 1) % 4;
+        }
 
         // Interagir (E) avec jardinière
         if (Gdx.input.isKeyJustPressed(Keys.E)) {
@@ -545,8 +588,9 @@ public class GameMain extends ApplicationAdapter {
 
         // Si prêt -> récolter (pas de stockage pour l’instant)
         if (!nearbyPlanter.isPlanterEmpty() && nearbyPlanter.isPlanterReady()) {
-            int amount = nearbyPlanter.harvest();
-            System.out.println("Harvest: +" + amount + " (stockage plus tard)");
+            Building.PlanterCrop crop = nearbyPlanter.harvest();
+            int amount = Building.getYieldFor(crop);
+            System.out.println("Harvest: " + crop + " +" + amount + " (stockage plus tard)");
             return;
         }
 
@@ -641,7 +685,7 @@ public class GameMain extends ApplicationAdapter {
 
         if (!canPlaceBuilding(selectedBuildingType, gridX, gridY)) return;
 
-        buildings.add(new Building(selectedBuildingType, gridX, gridY));
+        buildings.add(new Building(selectedBuildingType, gridX, gridY, currentRotation));
     }
 
     private boolean canPlaceBuilding(Building.Type type, int gridX, int gridY) {
@@ -750,7 +794,7 @@ public class GameMain extends ApplicationAdapter {
         int dx = Math.abs(targetWorldX - playerWorldX);
         int dy = Math.abs(targetWorldY - playerWorldY);
 
-        return dx <= 1 && dy <= 1;
+        return dx <= 3 && dy <= 3;
     }
 
     // ===== SAVE / LOAD =====
@@ -816,6 +860,64 @@ public class GameMain extends ApplicationAdapter {
         }
 
         cancelSelection();
+    }
+
+    private void updateConveyors(float dt) {
+        // On parcourt tous les bâtiments pour trouver les convoyeurs
+        for (Building b : buildings) {
+            if (!b.isConveyor()) continue;
+
+            // 1) Si le convoyeur est vide, il essaie de prendre un objet derrière lui
+            if (!b.hasItem()) {
+                // Calculer la position "derrière" le convoyeur
+                int backX = b.getGridX();
+                int backY = b.getGridY();
+
+                // Rotation: 0=Nord, 1=Est, 2=Sud, 3=Ouest
+                // Donc "derrière" c'est l'opposé
+                switch (b.getRotation()) {
+                    case 0: backY -= 1; break; // Derrière Nord = Sud
+                    case 1: backX -= 1; break; // Derrière Est = Ouest
+                    case 2: backY += 1; break; // Derrière Sud = Nord
+                    case 3: backX += 1; break; // Derrière Ouest = Est
+                }
+
+                Building behind = getBuildingAtGridCell(backX, backY);
+                if (behind != null) {
+                    // Cas A: Derrière c'est une jardinière prête
+                    if (behind.isPlanter() && behind.isPlanterReady() && !behind.isPlanterEmpty()) {
+                        Building.PlanterCrop crop = behind.harvest();
+                        b.receiveItem(crop);
+                    }
+
+                    // Cas B: Derrière c'est un autre convoyeur plein qui veut donner
+                    else if (behind.isConveyor() && behind.hasItem() && behind.getTransportProgress() >= 1f) {
+                        // On vérifie si ce convoyeur pointe vers nous
+                        int frontOfBehindX = behind.getGridX();
+                        int frontOfBehindY = behind.getGridY();
+                        switch (behind.getRotation()) {
+                            case 0: frontOfBehindY += 1; break;
+                            case 1: frontOfBehindX += 1; break;
+                            case 2: frontOfBehindY -= 1; break;
+                            case 3: frontOfBehindX -= 1; break;
+                        }
+
+                        if (frontOfBehindX == b.getGridX() && frontOfBehindY == b.getGridY()) {
+                            b.receiveItem(behind.takeItem());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private Building getBuildingAtGridCell(int gridX, int gridY) {
+        for (Building b : buildings) {
+            if (b.getGridX() == gridX && b.getGridY() == gridY) {
+                return b;
+            }
+        }
+        return null;
     }
 
     @Override

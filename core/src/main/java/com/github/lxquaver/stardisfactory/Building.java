@@ -55,6 +55,11 @@ public class Building {
     private float growTimerSeconds = 0f;
     private boolean ready = false;
 
+    // ====== CONVEYOR STATE (utilisé uniquement si type == CONVEYOR_BELT) ======
+    private PlanterCrop heldItem = PlanterCrop.NONE;
+    private float transportTimer = 0f;
+    private static final float TRANSPORT_TIME = 1.0f; // Temps pour traverser une case
+
     public Building(Type type, int gridX, int gridY) {
         this(type, gridX, gridY, 0);
     }
@@ -114,7 +119,14 @@ public class Building {
     }
 
     public void update(float dt) {
-        if (!isPlanter()) return;
+        if (isPlanter()) {
+            updatePlanter(dt);
+        } else if (isConveyor()) {
+            updateConveyor(dt);
+        }
+    }
+
+    private void updatePlanter(float dt) {
         if (planterCrop == PlanterCrop.NONE) return;
         if (ready) return;
 
@@ -128,22 +140,22 @@ public class Building {
     }
 
     /**
-     * Récolte (pour l'instant: pas de stockage, on reset juste)
-     * Retourne le nombre produit (prévu pour stockage plus tard).
+     * Récolte et retourne le type de plante.
+     * (Modifié pour retourner PlanterCrop au lieu de int)
      */
-    public int harvest() {
-        if (!isPlanter()) return 0;
-        if (planterCrop == PlanterCrop.NONE) return 0;
-        if (!ready) return 0;
+    public PlanterCrop harvest() {
+        if (!isPlanter()) return PlanterCrop.NONE;
+        if (planterCrop == PlanterCrop.NONE) return PlanterCrop.NONE;
+        if (!ready) return PlanterCrop.NONE;
 
-        int amount = getYieldFor(planterCrop);
+        PlanterCrop harvested = planterCrop;
 
         // reset
         planterCrop = PlanterCrop.NONE;
         growTimerSeconds = 0f;
         ready = false;
 
-        return amount;
+        return harvested;
     }
 
     public static float getGrowTimeSecondsFor(PlanterCrop crop) {
@@ -161,6 +173,54 @@ public class Building {
             case TOMATO: return 10;
             case WHEAT:  return 5;
             default:     return 0;
+        }
+    }
+
+    // =========================
+    // CONVEYOR LOGIC
+    // =========================
+
+    public boolean isConveyor() {
+        return type == Type.CONVEYOR_BELT;
+    }
+
+    public boolean hasItem() {
+        return heldItem != PlanterCrop.NONE;
+    }
+
+    public PlanterCrop getHeldItem() {
+        return heldItem;
+    }
+
+    public float getTransportProgress() {
+        if (!hasItem()) return 0f;
+        return Math.min(1f, transportTimer / TRANSPORT_TIME);
+    }
+
+    public boolean canReceiveItem() {
+        return isConveyor() && !hasItem();
+    }
+
+    public void receiveItem(PlanterCrop item) {
+        if (!canReceiveItem()) return;
+        heldItem = item;
+        transportTimer = 0f;
+    }
+
+    public PlanterCrop takeItem() {
+        if (!hasItem()) return PlanterCrop.NONE;
+        PlanterCrop item = heldItem;
+        heldItem = PlanterCrop.NONE;
+        transportTimer = 0f;
+        return item;
+    }
+
+    private void updateConveyor(float dt) {
+        if (hasItem()) {
+            transportTimer += dt;
+            if (transportTimer > TRANSPORT_TIME) {
+                transportTimer = TRANSPORT_TIME;
+            }
         }
     }
 }
