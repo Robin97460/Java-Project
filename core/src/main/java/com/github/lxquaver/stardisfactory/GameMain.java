@@ -21,6 +21,7 @@ import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
@@ -57,6 +58,10 @@ public class GameMain extends ApplicationAdapter {
     // Fenêtre contextuelle pour la jardinière
     private Window planterWindow;
     private Building currentPlanterForUI = null;
+
+    // Fenêtre contextuelle pour le HQ
+    private Window hqWindow;
+    private Building currentHQForUI = null;
 
     // --- Audio ---
     private Music backgroundMusic;
@@ -96,6 +101,7 @@ public class GameMain extends ApplicationAdapter {
     private boolean musicEnabled = true;
     private int totalTomatoes = 0; // Compteur de tomates récoltées
     private int totalWheat = 0;    // Compteur de blé récolté
+    private int money = 0;         // Argent du joueur
 
     @Override
     public void create() {
@@ -335,7 +341,7 @@ public class GameMain extends ApplicationAdapter {
         statsTable.setFillParent(true);
         statsTable.setName("HUD_STATS");
 
-        statsLabel = new Label("Tomates: 0 | Ble: 0", skin);
+        statsLabel = new Label("Argent: 0$ | Tomates: 0 | Ble: 0", skin);
         statsTable.add(statsLabel);
 
         uiStage.addActor(statsTable);
@@ -346,6 +352,7 @@ public class GameMain extends ApplicationAdapter {
         selectedTool = toolName;
         selectedBuildingType = null;
         closePlanterPopup();
+        closeHQPopup();
         if (buildingGroup != null) buildingGroup.uncheckAll();
     }
 
@@ -353,6 +360,7 @@ public class GameMain extends ApplicationAdapter {
         selectedBuildingType = type;
         selectedTool = "NONE";
         closePlanterPopup();
+        closeHQPopup();
         if (toolGroup != null) toolGroup.uncheckAll();
     }
 
@@ -702,9 +710,9 @@ public class GameMain extends ApplicationAdapter {
             currentRotation = (currentRotation + 1) % 4;
         }
 
-        // Interagir (E) avec jardinière
+        // Interagir (E) avec jardinière ou HQ
         if (Gdx.input.isKeyJustPressed(Keys.E)) {
-            tryInteractWithPlanter();
+            tryInteract();
         }
 
         // Mouvement joueur (ZQSD ou Flèches)
@@ -762,54 +770,64 @@ public class GameMain extends ApplicationAdapter {
         }
     }
 
-    private void tryInteractWithPlanter() {
+    private void tryInteract() {
         int playerWorldX = Math.round(playerPos.x);
         int playerWorldY = Math.round(playerPos.y);
 
-        Building nearbyPlanter = null;
+        Building nearbyBuilding = null;
 
-        // Cherche une jardinière dans le carré 3x3 autour du joueur
+        // Cherche un bâtiment interactif dans le carré 3x3 autour du joueur
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
                 Building b = getBuildingAtWorldCell(playerWorldX + dx, playerWorldY + dy);
-                if (b != null && b.getType() == Building.Type.PLANTER) {
-                    nearbyPlanter = b;
-                    break;
+                if (b != null) {
+                    if (b.isPlanter() || b.isHQ()) {
+                        nearbyBuilding = b;
+                        break;
+                    }
                 }
             }
-            if (nearbyPlanter != null) break;
+            if (nearbyBuilding != null) break;
         }
 
-        if (nearbyPlanter == null) return;
+        if (nearbyBuilding == null) return;
 
-        // Si prêt -> récolter
-        if (!nearbyPlanter.isPlanterEmpty() && nearbyPlanter.isPlanterReady()) {
-            Building.PlanterCrop crop = nearbyPlanter.harvest();
-            int amount = Building.getYieldFor(crop);
+        // --- Interaction avec JARDINIÈRE ---
+        if (nearbyBuilding.isPlanter()) {
+            // Si prêt -> récolter
+            if (!nearbyBuilding.isPlanterEmpty() && nearbyBuilding.isPlanterReady()) {
+                Building.PlanterCrop crop = nearbyBuilding.harvest();
+                int amount = Building.getYieldFor(crop);
 
-            // Mise à jour stats
-            if (crop == Building.PlanterCrop.TOMATO) totalTomatoes += amount;
-            if (crop == Building.PlanterCrop.WHEAT) totalWheat += amount;
-            updateStatsLabel();
+                // Mise à jour stats
+                if (crop == Building.PlanterCrop.TOMATO) totalTomatoes += amount;
+                if (crop == Building.PlanterCrop.WHEAT) totalWheat += amount;
+                updateStatsLabel();
 
-            System.out.println("Harvest: " + crop + " +" + amount);
-            return;
+                System.out.println("Harvest: " + crop + " +" + amount);
+                return;
+            }
+            // Si vide -> popup choix
+            if (nearbyBuilding.isPlanterEmpty()) {
+                openPlanterPopup(nearbyBuilding);
+            }
         }
 
-        // Si vide -> popup choix
-        if (nearbyPlanter.isPlanterEmpty()) {
-            openPlanterPopup(nearbyPlanter);
+        // --- Interaction avec HQ ---
+        else if (nearbyBuilding.isHQ()) {
+            openHQPopup(nearbyBuilding);
         }
     }
 
     private void updateStatsLabel() {
         if (statsLabel != null) {
-            statsLabel.setText("Tomates: " + totalTomatoes + " | Ble: " + totalWheat);
+            statsLabel.setText("Argent: " + money + "$ | Tomates: " + totalTomatoes + " | Ble: " + totalWheat);
         }
     }
 
     private void openPlanterPopup(Building planter) {
         closePlanterPopup();
+        closeHQPopup();
 
         currentPlanterForUI = planter;
 
@@ -874,10 +892,78 @@ public class GameMain extends ApplicationAdapter {
         currentPlanterForUI = null;
     }
 
+    private void openHQPopup(Building hq) {
+        closePlanterPopup();
+        closeHQPopup();
+
+        currentHQForUI = hq;
+
+        Window.WindowStyle ws = new Window.WindowStyle(
+                skin.getFont("default"),
+                Color.WHITE,
+                skin.newDrawable("white", new Color(0f, 0f, 0f, 0.8f))
+        );
+
+        hqWindow = new Window("Stockage HQ", ws);
+        hqWindow.pad(20);
+
+        int t = hq.getHQStock(Building.PlanterCrop.TOMATO);
+        int w = hq.getHQStock(Building.PlanterCrop.WHEAT);
+
+        Label stockLabel = new Label("Stock:\nTomates: " + t + "\nBle: " + w, skin);
+        stockLabel.setAlignment(Align.center);
+
+        TextButton sellBtn = new TextButton("TOUT VENDRE", skin);
+        sellBtn.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent event, float x, float y) {
+                if (currentHQForUI != null) {
+                    int t = currentHQForUI.getHQStock(Building.PlanterCrop.TOMATO);
+                    int w = currentHQForUI.getHQStock(Building.PlanterCrop.WHEAT);
+
+                    // Calcul du gain (Tomate=10$, Blé=5$)
+                    int gain = (t * 10) + (w * 5);
+                    money += gain;
+
+                    currentHQForUI.clearHQStock();
+                    updateStatsLabel();
+                    closeHQPopup(); // On ferme pour rafraîchir ou juste finir
+                }
+            }
+        });
+
+        TextButton closeBtn = new TextButton("Fermer", skin);
+        closeBtn.addListener(new ClickListener() {
+            @Override public void clicked(InputEvent event, float x, float y) {
+                closeHQPopup();
+            }
+        });
+
+        hqWindow.add(stockLabel).pad(10).row();
+        hqWindow.add(sellBtn).width(200).pad(10).row();
+        hqWindow.add(closeBtn).width(200).pad(5).row();
+
+        hqWindow.pack();
+        hqWindow.setPosition(
+                Gdx.graphics.getWidth() / 2f - hqWindow.getWidth() / 2f,
+                Gdx.graphics.getHeight() / 2f - hqWindow.getHeight() / 2f
+        );
+
+        uiStage.addActor(hqWindow);
+    }
+
+    private void closeHQPopup() {
+        if (hqWindow != null) {
+            hqWindow.remove();
+            hqWindow = null;
+        }
+        currentHQForUI = null;
+    }
+
     private void cancelSelection() {
         selectedBuildingType = null;
         selectedTool = "NONE";
         closePlanterPopup();
+        closeHQPopup();
         if (toolGroup != null) toolGroup.uncheckAll();
         if (buildingGroup != null) buildingGroup.uncheckAll();
     }
@@ -970,6 +1056,7 @@ public class GameMain extends ApplicationAdapter {
             if (gridX >= bx && gridX < bx + bw && gridY >= by && gridY < by + bh) {
                 it.remove();
                 closePlanterPopup();
+                closeHQPopup();
                 return;
             }
         }
@@ -1114,6 +1201,25 @@ public class GameMain extends ApplicationAdapter {
                             b.receiveItem(behind.takeItem());
                         }
                     }
+                }
+            }
+
+            // 2) Si le convoyeur est plein et prêt, il essaie de donner à un HQ devant lui
+            if (b.hasItem() && b.getTransportProgress() >= 1f) {
+                // Calculer la position "devant" le convoyeur
+                int frontX = b.getGridX();
+                int frontY = b.getGridY();
+                switch (b.getRotation()) {
+                    case 0: frontY += 1; break; // Nord
+                    case 1: frontX += 1; break; // Est
+                    case 2: frontY -= 1; break; // Sud
+                    case 3: frontX -= 1; break; // Ouest
+                }
+
+                Building front = getBuildingAtGridCell(frontX, frontY);
+                if (front != null && front.isHQ()) {
+                    // On donne l'objet au HQ
+                    front.addToHQStock(b.takeItem(), 1);
                 }
             }
         }
