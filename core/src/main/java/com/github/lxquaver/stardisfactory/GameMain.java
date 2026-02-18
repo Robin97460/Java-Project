@@ -17,9 +17,11 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
+import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.ScreenUtils;
@@ -54,8 +56,6 @@ public class GameMain extends ApplicationAdapter {
     private Slider volumeSlider;
     private CheckBox musicCheckBox;
     private Label statsLabel;
-    private Label selectionLabel;
-
 
     // Fenêtre contextuelle pour la jardinière
     private Window planterWindow;
@@ -80,10 +80,6 @@ public class GameMain extends ApplicationAdapter {
     private Texture tileGrass;
     private Texture tileTilled;
     private Texture tileRoad;
-    private Texture hqTexture;
-    private final float HQ_SPRITE_SCALE = 1.4f;
-
-
 
     // --- Données du Monde ---
     private static final int MAP_SIZE = 100; // Taille de la carte (100x100 cases)
@@ -115,7 +111,7 @@ public class GameMain extends ApplicationAdapter {
         batch = new SpriteBatch();
         shapeRenderer = new ShapeRenderer();
         camera = new OrthographicCamera();
-        viewport = new FitViewport(32, 18, camera); // On voit 32x18 mètres du monde
+        viewport = new FitViewport(20, 15, camera); // On voit 20x15 mètres du monde
 
         // Initialisation de l'UI
         uiStage = new Stage(new ScreenViewport());
@@ -127,16 +123,12 @@ public class GameMain extends ApplicationAdapter {
         tileGrass = new Texture("tile_grass.png");
         tileTilled = new Texture("tile_tilled.png");
         tileRoad = new Texture("tile_road.png");
-        hqTexture = new Texture("hq.png");
-
 
         // On garde le pixel-art bien net (pas de flou quand on zoome)
         tileDirt.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileGrass.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileTilled.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileRoad.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
-        hqTexture.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
-
 
         // Chargement de la musique (si le fichier existe)
         try {
@@ -163,9 +155,15 @@ public class GameMain extends ApplicationAdapter {
 
         for (int x = 0; x < MAP_SIZE; x++) {
             for (int y = 0; y < MAP_SIZE; y++) {
-                terrainGrid[x][y] = new Terrain(Terrain.Type.GRASS);
+                terrainGrid[x][y] = new Terrain(Terrain.Type.DIRT);
             }
         }
+
+        // Un petit carré d'herbe pour tester au centre
+        terrainGrid[50][50] = new Terrain(Terrain.Type.GRASS);
+        terrainGrid[51][50] = new Terrain(Terrain.Type.GRASS);
+        terrainGrid[50][51] = new Terrain(Terrain.Type.GRASS);
+        terrainGrid[51][51] = new Terrain(Terrain.Type.GRASS);
 
         // On commence sur le menu principal
         showMainMenu();
@@ -214,7 +212,10 @@ public class GameMain extends ApplicationAdapter {
         // Style des sliders (barres de volume)
         Slider.SliderStyle sliderStyle = new Slider.SliderStyle();
         sliderStyle.background = skin.newDrawable("white", Color.DARK_GRAY);
+        // On grossit le bouton (knob)
         sliderStyle.knob = skin.newDrawable("white", Color.ROYAL);
+        sliderStyle.knob.setMinWidth(20);
+        sliderStyle.knob.setMinHeight(40);
         skin.add("default-horizontal", sliderStyle);
 
         // Style des cases à cocher
@@ -349,24 +350,12 @@ public class GameMain extends ApplicationAdapter {
         statsTable.add(statsLabel);
 
         uiStage.addActor(statsTable);
-
-        // --- Indicateur de sélection en haut au centre ---
-        Table topCenter = new Table();
-        topCenter.top().pad(10);
-        topCenter.setFillParent(true);
-        topCenter.setName("HUD_SELECTION");
-
-        selectionLabel = new Label("", skin);
-        topCenter.add(selectionLabel);
-
-        uiStage.addActor(topCenter);
     }
 
     // Méthodes utilitaires pour simplifier la sélection
     private void selectTool(String toolName) {
         selectedTool = toolName;
         selectedBuildingType = null;
-        updateSelectionLabel();
         closePlanterPopup();
         closeHQPopup();
         if (buildingGroup != null) buildingGroup.uncheckAll();
@@ -375,22 +364,9 @@ public class GameMain extends ApplicationAdapter {
     private void selectBuilding(Building.Type type) {
         selectedBuildingType = type;
         selectedTool = "NONE";
-        updateSelectionLabel();
         closePlanterPopup();
         closeHQPopup();
         if (toolGroup != null) toolGroup.uncheckAll();
-    }
-
-    private void updateSelectionLabel() {
-        if (selectionLabel == null) return;
-
-        if (selectedBuildingType != null) {
-            selectionLabel.setText("Selection: " + selectedBuildingType.name());
-        } else if (!selectedTool.equals("NONE")) {
-            selectionLabel.setText("Outil: " + selectedTool);
-        } else {
-            selectionLabel.setText("");
-        }
     }
 
     /**
@@ -410,8 +386,11 @@ public class GameMain extends ApplicationAdapter {
         Label volumeLabel = new Label("Volume Musique:", skin);
         volumeSlider = new Slider(0f, 1f, 0.1f, false, skin);
         volumeSlider.setValue(musicVolume);
-        volumeSlider.addListener(new ClickListener() {
-            @Override public void touchUp(InputEvent event, float x, float y, int pointer, int button) {
+
+        // Utilisation de ChangeListener pour le temps réel
+        volumeSlider.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
                 updateMusicVolume(volumeSlider.getValue());
             }
         });
@@ -464,8 +443,11 @@ public class GameMain extends ApplicationAdapter {
         Label volumeLabel = new Label("Volume:", skin);
         final Slider pauseVolumeSlider = new Slider(0f, 1f, 0.1f, false, skin);
         pauseVolumeSlider.setValue(musicVolume);
-        pauseVolumeSlider.addListener(new ClickListener() {
-            @Override public void touchUp(InputEvent event, float x, float y, int pointer, int button) {
+
+        // Utilisation de ChangeListener pour le temps réel
+        pauseVolumeSlider.addListener(new ChangeListener() {
+            @Override
+            public void changed(ChangeEvent event, Actor actor) {
                 updateMusicVolume(pauseVolumeSlider.getValue());
             }
         });
@@ -549,10 +531,6 @@ public class GameMain extends ApplicationAdapter {
         mainMenuTable.setVisible(false);
         pauseWindow.setVisible(false);
         setGameHUDVisible(true); // On affiche le HUD du jeu
-
-        // On place le HQ de départ
-        buildings.clear();
-        buildings.add(new Building(Building.Type.MAIN_HQ, 55, 55, 0));
     }
 
     private void resumeGame() {
@@ -623,19 +601,18 @@ public class GameMain extends ApplicationAdapter {
                     batch.draw(tex, x - MAP_OFFSET, y - MAP_OFFSET, 1f, 1f);
                 }
             }
-            batch.end(); // On termine le batch du terrain avant de passer au ShapeRenderer
-
+            batch.end();
 
             // 2) Dessiner les bâtiments (Carrés de couleur)
             shapeRenderer.setProjectionMatrix(camera.combined);
             shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
             for (Building b : buildings) {
-                if (b.getType() == Building.Type.MAIN_HQ) continue;
                 float wx = b.getGridX() - MAP_OFFSET;
                 float wy = b.getGridY() - MAP_OFFSET;
 
                 // Choix de la couleur selon le type
                 switch (b.getType()) {
+                    case MAIN_HQ: shapeRenderer.setColor(Color.BLUE); break;
                     case COW_COOP: shapeRenderer.setColor(Color.BROWN); break;
                     case CONVEYOR_BELT: shapeRenderer.setColor(Color.GRAY); break;
                     case PLANTER:
@@ -665,29 +642,6 @@ public class GameMain extends ApplicationAdapter {
                     shapeRenderer.rect(itemX, itemY, 0.5f, 0.5f);
                 }
             }
-            shapeRenderer.end();
-
-            // On dessine maintenant les bâtiments avec texture, comme le HQ
-            batch.begin();
-            for (Building b : buildings) {
-                if (b.getType() == Building.Type.MAIN_HQ) {
-                    // --- MODIFICATION DE LA TAILLE VISUELLE ---
-                    // Taille visuelle souhaitée pour la texture (ex: 4x4)
-                    final float visualWidth = b.getType().width * HQ_SPRITE_SCALE;
-                    final float visualHeight = b.getType().height * HQ_SPRITE_SCALE;
-
-                    // Taille logique du bâtiment (ex: 3x3, depuis Building.java)
-                    final float logicalWidth = b.getType().width;
-                    final float logicalHeight = b.getType().height;
-
-                    // On calcule la position pour que la texture plus grande reste centrée sur l'empreinte logique
-                    float drawX = (b.getGridX() - MAP_OFFSET + logicalWidth / 2f) - (visualWidth / 2f);
-                    float drawY = (b.getGridY() - MAP_OFFSET + logicalHeight / 2f) - (visualHeight / 2.2f);
-
-                    batch.draw(hqTexture, drawX, drawY, visualWidth, visualHeight);
-                }
-            }
-            batch.end(); // On ferme le batch après avoir dessiné le HQ
 
             // 3) Dessiner les prévisualisations (Ghost) et la sélection
             Vector3 worldMouse = camera.unproject(new Vector3(Gdx.input.getX(), Gdx.input.getY(), 0));
@@ -695,15 +649,12 @@ public class GameMain extends ApplicationAdapter {
             int mouseWorldY = MathUtils.floor(worldMouse.y);
 
             if (currentState == GameState.PLAYING) {
-                shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-                // Case sous la souris (Rouge si hors de portée, Jaune si ok)
+                // Case sous la souris (Rouge si hors de portée, Blanc si ok)
                 if (!selectedTool.equals("NONE") && selectedBuildingType == null && !selectedTool.equals("BULLDOZE")) {
-                    shapeRenderer.setColor(isInInteractionRange(mouseWorldX, mouseWorldY) ? Color.YELLOW : Color.RED);
+                    shapeRenderer.setColor(isInInteractionRange(mouseWorldX, mouseWorldY) ? new Color(1f, 1f, 1f, 0.2f) : new Color(1f, 0f, 0f, 0.2f));
                     shapeRenderer.rect(mouseWorldX, mouseWorldY, 1, 1);
                 }
-                shapeRenderer.end();
 
-                shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
                 // Fantôme du bâtiment à construire
                 if (selectedBuildingType != null) {
                     boolean ok = isInInteractionRange(mouseWorldX, mouseWorldY) && canPlaceBuilding(selectedBuildingType, mouseWorldX + MAP_OFFSET, mouseWorldY + MAP_OFFSET);
@@ -722,9 +673,8 @@ public class GameMain extends ApplicationAdapter {
                         case 3: shapeRenderer.rect(cx - len, cy - 0.05f, len, 0.1f); break;
                     }
                 }
-                shapeRenderer.end();
             }
-
+            shapeRenderer.end();
 
             // 4) Dessiner la grille
             shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
@@ -777,7 +727,6 @@ public class GameMain extends ApplicationAdapter {
         }
 
         // Mouvement joueur (ZQSD ou Flèches)
-        Vector2 lastPos = new Vector2(playerPos);
         if (Gdx.input.isKeyPressed(Keys.W) || Gdx.input.isKeyPressed(Keys.Z) || Gdx.input.isKeyPressed(Keys.UP)) {
             playerPos.y += MOVE_SPEED * dt;
         }
@@ -791,10 +740,6 @@ public class GameMain extends ApplicationAdapter {
         if (Gdx.input.isKeyPressed(Keys.D)) {
             playerPos.x += MOVE_SPEED * dt;
             playerSprite.setFlip(false, false);
-        }
-
-        if (isCollidingWithBuilding(playerPos.x, playerPos.y)) {
-            playerPos.set(lastPos);
         }
 
         // Clic droit = annuler sélection (+ ferme popup)
@@ -834,30 +779,6 @@ public class GameMain extends ApplicationAdapter {
                 applyTool(worldPos.x, worldPos.y);
             }
         }
-    }
-
-    private boolean isCollidingWithBuilding(float worldX, float worldY) {
-        float playerHalfW = playerSprite.getWidth() * 0.5f;
-        float playerHalfH = playerSprite.getHeight() * 0.5f;
-        float playerLeft = worldX - playerHalfW;
-        float playerRight = worldX + playerHalfW;
-        float playerBottom = worldY - playerHalfH;
-        float playerTop = worldY + playerHalfH;
-
-        for (Building b : buildings) {
-            if (b.isPlanter() || b.isConveyor()) continue;
-
-            float bx = b.getGridX() - MAP_OFFSET;
-            float by = b.getGridY() - MAP_OFFSET;
-            float bw = b.getType().width;
-            float bh = b.getType().height;
-
-            if (playerLeft < bx + bw && playerRight > bx &&
-                    playerBottom < by + bh && playerTop > by) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void tryInteract() {
@@ -1052,7 +973,6 @@ public class GameMain extends ApplicationAdapter {
     private void cancelSelection() {
         selectedBuildingType = null;
         selectedTool = "NONE";
-        updateSelectionLabel();
         closePlanterPopup();
         closeHQPopup();
         if (toolGroup != null) toolGroup.uncheckAll();
@@ -1097,12 +1017,6 @@ public class GameMain extends ApplicationAdapter {
                 if (type == Building.Type.PLANTER) {
                     if (t.getType() != Terrain.Type.TILLED) return false;
                 }
-
-                // HQ peut être placé sur l'herbe
-                if (type == Building.Type.MAIN_HQ) {
-                    if (t.getType() != Terrain.Type.GRASS) return false;
-                }
-
             }
         }
 
@@ -1160,8 +1074,8 @@ public class GameMain extends ApplicationAdapter {
     }
 
     private void applyTool(float worldX, float worldY) {
-        int worldGridX = MathUtils.floor(worldX);
-        int worldGridY = MathUtils.floor(worldY);
+        int worldGridX = Math.round(worldX);
+        int worldGridY = Math.round(worldY);
 
         if (!isInInteractionRange(worldGridX, worldGridY)) return;
 
@@ -1181,12 +1095,12 @@ public class GameMain extends ApplicationAdapter {
 
     private boolean isInInteractionRange(int targetWorldX, int targetWorldY) {
         int playerWorldX = Math.round(playerPos.x);
-        int playerWorldY = Math.round(playerPos.y - 0.5f);
+        int playerWorldY = Math.round(playerPos.y);
 
         int dx = Math.abs(targetWorldX - playerWorldX);
         int dy = Math.abs(targetWorldY - playerWorldY);
 
-        return dx <= 1 && dy <= 1;
+        return dx <= 3 && dy <= 3;
     }
 
     // ===== SAVE / LOAD =====
@@ -1255,92 +1169,76 @@ public class GameMain extends ApplicationAdapter {
     }
 
     private void updateConveyors(float dt) {
+        // On parcourt tous les bâtiments pour trouver les convoyeurs
         for (Building b : buildings) {
             if (!b.isConveyor()) continue;
 
+            // 1) Si le convoyeur est vide, il essaie de prendre un objet derrière lui
             if (!b.hasItem()) {
-                tryFeedConveyor(b);
+                // Calculer la position "derrière" le convoyeur
+                int backX = b.getGridX();
+                int backY = b.getGridY();
+
+                // Rotation: 0=Nord, 1=Est, 2=Sud, 3=Ouest
+                // Donc "derrière" c'est l'opposé
+                switch (b.getRotation()) {
+                    case 0: backY -= 1; break; // Derrière Nord = Sud
+                    case 1: backX -= 1; break; // Derrière Est = Ouest
+                    case 2: backY += 1; break; // Derrière Sud = Nord
+                    case 3: backX += 1; break; // Derrière Ouest = Est
+                }
+
+                Building behind = getBuildingAtGridCell(backX, backY);
+                if (behind != null) {
+                    // Cas A: Derrière c'est une jardinière prête
+                    if (behind.isPlanter() && behind.isPlanterReady() && !behind.isPlanterEmpty()) {
+                        Building.PlanterCrop crop = behind.harvest();
+                        b.receiveItem(crop);
+                    }
+
+                    // Cas B: Derrière c'est un autre convoyeur plein qui veut donner
+                    else if (behind.isConveyor() && behind.hasItem() && behind.getTransportProgress() >= 1f) {
+                        // On vérifie si ce convoyeur pointe vers nous
+                        int frontOfBehindX = behind.getGridX();
+                        int frontOfBehindY = behind.getGridY();
+                        switch (behind.getRotation()) {
+                            case 0: frontOfBehindY += 1; break;
+                            case 1: frontOfBehindX += 1; break;
+                            case 2: frontOfBehindY -= 1; break;
+                            case 3: frontOfBehindX -= 1; break;
+                        }
+
+                        if (frontOfBehindX == b.getGridX() && frontOfBehindY == b.getGridY()) {
+                            b.receiveItem(behind.takeItem());
+                        }
+                    }
+                }
             }
 
+            // 2) Si le convoyeur est plein et prêt, il essaie de donner à un HQ devant lui
             if (b.hasItem() && b.getTransportProgress() >= 1f) {
-                int frontX = getFrontGridX(b);
-                int frontY = getFrontGridY(b);
-                Building front = getBuildingCoveringGridCell(frontX, frontY);
+                // Calculer la position "devant" le convoyeur
+                int frontX = b.getGridX();
+                int frontY = b.getGridY();
+                switch (b.getRotation()) {
+                    case 0: frontY += 1; break; // Nord
+                    case 1: frontX += 1; break; // Est
+                    case 2: frontY -= 1; break; // Sud
+                    case 3: frontX -= 1; break; // Ouest
+                }
 
-                if (front != null && front.isHQ() && canConveyorOutputToHQSide(b, front, frontX)) {
+                Building front = getBuildingAtGridCell(frontX, frontY);
+                if (front != null && front.isHQ()) {
+                    // On donne l'objet au HQ
                     front.addToHQStock(b.takeItem(), 1);
                 }
             }
         }
     }
 
-    private void tryFeedConveyor(Building conveyor) {
-        int[][] neighbors = new int[][]{{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
-
-        for (int[] dir : neighbors) {
-            int nx = conveyor.getGridX() + dir[0];
-            int ny = conveyor.getGridY() + dir[1];
-            Building neighbor = getBuildingAtGridCell(nx, ny);
-            if (neighbor == null || !neighbor.isConveyor()) continue;
-            if (!neighbor.hasItem() || neighbor.getTransportProgress() < 1f) continue;
-
-            if (getFrontGridX(neighbor) == conveyor.getGridX() && getFrontGridY(neighbor) == conveyor.getGridY()) {
-                conveyor.receiveItem(neighbor.takeItem());
-                return;
-            }
-        }
-
-        for (int[] dir : neighbors) {
-            int nx = conveyor.getGridX() + dir[0];
-            int ny = conveyor.getGridY() + dir[1];
-            Building neighbor = getBuildingAtGridCell(nx, ny);
-            if (neighbor != null && neighbor.isPlanter() && !neighbor.isPlanterEmpty() && neighbor.isPlanterReady()) {
-                conveyor.receiveItem(neighbor.harvest());
-                return;
-            }
-        }
-    }
-
-    private int getFrontGridX(Building b) {
-        int x = b.getGridX();
-        if (b.getRotation() == 1) x += 1;
-        if (b.getRotation() == 3) x -= 1;
-        return x;
-    }
-
-    private int getFrontGridY(Building b) {
-        int y = b.getGridY();
-        if (b.getRotation() == 0) y += 1;
-        if (b.getRotation() == 2) y -= 1;
-        return y;
-    }
-
-    private boolean canConveyorOutputToHQSide(Building conveyor, Building hq, int hqCellX) {
-        if (conveyor.getRotation() == 1) {
-            return hqCellX == hq.getGridX();
-        }
-        if (conveyor.getRotation() == 3) {
-            return hqCellX == hq.getGridX() + hq.getType().width - 1;
-        }
-        return false;
-    }
-
     private Building getBuildingAtGridCell(int gridX, int gridY) {
         for (Building b : buildings) {
             if (b.getGridX() == gridX && b.getGridY() == gridY) {
-                return b;
-            }
-        }
-        return null;
-    }
-
-    private Building getBuildingCoveringGridCell(int gridX, int gridY) {
-        for (Building b : buildings) {
-            int bx = b.getGridX();
-            int by = b.getGridY();
-            int bw = b.getType().width;
-            int bh = b.getType().height;
-            if (gridX >= bx && gridX < bx + bw && gridY >= by && gridY < by + bh) {
                 return b;
             }
         }
@@ -1372,7 +1270,6 @@ public class GameMain extends ApplicationAdapter {
         if (tileGrass != null) tileGrass.dispose();
         if (tileTilled != null) tileTilled.dispose();
         if (tileRoad != null) tileRoad.dispose();
-        if (hqTexture != null) hqTexture.dispose();
 
         if (backgroundMusic != null) backgroundMusic.dispose();
 
