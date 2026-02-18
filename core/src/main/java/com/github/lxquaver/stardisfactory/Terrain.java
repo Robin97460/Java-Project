@@ -37,10 +37,12 @@ public class Terrain {
 
     /**
      * Action : Labourer le sol (Houe).
-     * Transforme la terre en terre labourée.
+     * Transforme l'herbe en terre, et la terre en terre labourée.
      */
     public void till() {
-        if (currentType == Type.DIRT) {
+        if (currentType == Type.GRASS) {
+            currentType = Type.DIRT;
+        } else if (currentType == Type.DIRT) {
             currentType = Type.TILLED;
         }
     }

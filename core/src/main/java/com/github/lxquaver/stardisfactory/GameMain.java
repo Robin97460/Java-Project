@@ -54,6 +54,8 @@ public class GameMain extends ApplicationAdapter {
     private Slider volumeSlider;
     private CheckBox musicCheckBox;
     private Label statsLabel;
+    private Label selectionLabel;
+
 
     // Fenêtre contextuelle pour la jardinière
     private Window planterWindow;
@@ -78,6 +80,10 @@ public class GameMain extends ApplicationAdapter {
     private Texture tileGrass;
     private Texture tileTilled;
     private Texture tileRoad;
+    private Texture hqTexture;
+    private final float HQ_SPRITE_SCALE = 1.4f;
+
+
 
     // --- Données du Monde ---
     private static final int MAP_SIZE = 100; // Taille de la carte (100x100 cases)
@@ -109,7 +115,7 @@ public class GameMain extends ApplicationAdapter {
         batch = new SpriteBatch();
         shapeRenderer = new ShapeRenderer();
         camera = new OrthographicCamera();
-        viewport = new FitViewport(20, 15, camera); // On voit 20x15 mètres du monde
+        viewport = new FitViewport(32, 18, camera); // On voit 32x18 mètres du monde
 
         // Initialisation de l'UI
         uiStage = new Stage(new ScreenViewport());
@@ -121,12 +127,16 @@ public class GameMain extends ApplicationAdapter {
         tileGrass = new Texture("tile_grass.png");
         tileTilled = new Texture("tile_tilled.png");
         tileRoad = new Texture("tile_road.png");
+        hqTexture = new Texture("hq.png");
+
 
         // On garde le pixel-art bien net (pas de flou quand on zoome)
         tileDirt.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileGrass.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileTilled.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         tileRoad.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
+        hqTexture.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
+
 
         // Chargement de la musique (si le fichier existe)
         try {
@@ -153,15 +163,9 @@ public class GameMain extends ApplicationAdapter {
 
         for (int x = 0; x < MAP_SIZE; x++) {
             for (int y = 0; y < MAP_SIZE; y++) {
-                terrainGrid[x][y] = new Terrain(Terrain.Type.DIRT);
+                terrainGrid[x][y] = new Terrain(Terrain.Type.GRASS);
             }
         }
-
-        // Un petit carré d'herbe pour tester au centre
-        terrainGrid[50][50] = new Terrain(Terrain.Type.GRASS);
-        terrainGrid[51][50] = new Terrain(Terrain.Type.GRASS);
-        terrainGrid[50][51] = new Terrain(Terrain.Type.GRASS);
-        terrainGrid[51][51] = new Terrain(Terrain.Type.GRASS);
 
         // On commence sur le menu principal
         showMainMenu();
@@ -345,12 +349,24 @@ public class GameMain extends ApplicationAdapter {
         statsTable.add(statsLabel);
 
         uiStage.addActor(statsTable);
+
+        // --- Indicateur de sélection en haut au centre ---
+        Table topCenter = new Table();
+        topCenter.top().pad(10);
+        topCenter.setFillParent(true);
+        topCenter.setName("HUD_SELECTION");
+
+        selectionLabel = new Label("", skin);
+        topCenter.add(selectionLabel);
+
+        uiStage.addActor(topCenter);
     }
 
     // Méthodes utilitaires pour simplifier la sélection
     private void selectTool(String toolName) {
         selectedTool = toolName;
         selectedBuildingType = null;
+        updateSelectionLabel();
         closePlanterPopup();
         closeHQPopup();
         if (buildingGroup != null) buildingGroup.uncheckAll();
@@ -359,9 +375,22 @@ public class GameMain extends ApplicationAdapter {
     private void selectBuilding(Building.Type type) {
         selectedBuildingType = type;
         selectedTool = "NONE";
+        updateSelectionLabel();
         closePlanterPopup();
         closeHQPopup();
         if (toolGroup != null) toolGroup.uncheckAll();
+    }
+
+    private void updateSelectionLabel() {
+        if (selectionLabel == null) return;
+
+        if (selectedBuildingType != null) {
+            selectionLabel.setText("Selection: " + selectedBuildingType.name());
+        } else if (!selectedTool.equals("NONE")) {
+            selectionLabel.setText("Outil: " + selectedTool);
+        } else {
+            selectionLabel.setText("");
+        }
     }
 
     /**
@@ -520,6 +549,10 @@ public class GameMain extends ApplicationAdapter {
         mainMenuTable.setVisible(false);
         pauseWindow.setVisible(false);
         setGameHUDVisible(true); // On affiche le HUD du jeu
+
+        // On place le HQ de départ
+        buildings.clear();
+        buildings.add(new Building(Building.Type.MAIN_HQ, 55, 55, 0));
     }
 
     private void resumeGame() {
@@ -590,18 +623,19 @@ public class GameMain extends ApplicationAdapter {
                     batch.draw(tex, x - MAP_OFFSET, y - MAP_OFFSET, 1f, 1f);
                 }
             }
-            batch.end();
+            batch.end(); // On termine le batch du terrain avant de passer au ShapeRenderer
+
 
             // 2) Dessiner les bâtiments (Carrés de couleur)
             shapeRenderer.setProjectionMatrix(camera.combined);
             shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
             for (Building b : buildings) {
+                if (b.getType() == Building.Type.MAIN_HQ) continue;
                 float wx = b.getGridX() - MAP_OFFSET;
                 float wy = b.getGridY() - MAP_OFFSET;
 
                 // Choix de la couleur selon le type
                 switch (b.getType()) {
-                    case MAIN_HQ: shapeRenderer.setColor(Color.BLUE); break;
                     case COW_COOP: shapeRenderer.setColor(Color.BROWN); break;
                     case CONVEYOR_BELT: shapeRenderer.setColor(Color.GRAY); break;
                     case PLANTER:
@@ -631,6 +665,29 @@ public class GameMain extends ApplicationAdapter {
                     shapeRenderer.rect(itemX, itemY, 0.5f, 0.5f);
                 }
             }
+            shapeRenderer.end();
+
+            // On dessine maintenant les bâtiments avec texture, comme le HQ
+            batch.begin();
+            for (Building b : buildings) {
+                if (b.getType() == Building.Type.MAIN_HQ) {
+                    // --- MODIFICATION DE LA TAILLE VISUELLE ---
+                    // Taille visuelle souhaitée pour la texture (ex: 4x4)
+                    final float visualWidth = b.getType().width * HQ_SPRITE_SCALE;
+                    final float visualHeight = b.getType().height * HQ_SPRITE_SCALE;
+
+                    // Taille logique du bâtiment (ex: 3x3, depuis Building.java)
+                    final float logicalWidth = b.getType().width;
+                    final float logicalHeight = b.getType().height;
+
+                    // On calcule la position pour que la texture plus grande reste centrée sur l'empreinte logique
+                    float drawX = (b.getGridX() - MAP_OFFSET + logicalWidth / 2f) - (visualWidth / 2f);
+                    float drawY = (b.getGridY() - MAP_OFFSET + logicalHeight / 2f) - (visualHeight / 2.2f);
+
+                    batch.draw(hqTexture, drawX, drawY, visualWidth, visualHeight);
+                }
+            }
+            batch.end(); // On ferme le batch après avoir dessiné le HQ
 
             // 3) Dessiner les prévisualisations (Ghost) et la sélection
             Vector3 worldMouse = camera.unproject(new Vector3(Gdx.input.getX(), Gdx.input.getY(), 0));
@@ -638,12 +695,15 @@ public class GameMain extends ApplicationAdapter {
             int mouseWorldY = MathUtils.floor(worldMouse.y);
 
             if (currentState == GameState.PLAYING) {
-                // Case sous la souris (Rouge si hors de portée, Blanc si ok)
+                shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+                // Case sous la souris (Rouge si hors de portée, Jaune si ok)
                 if (!selectedTool.equals("NONE") && selectedBuildingType == null && !selectedTool.equals("BULLDOZE")) {
-                    shapeRenderer.setColor(isInInteractionRange(mouseWorldX, mouseWorldY) ? new Color(1f, 1f, 1f, 0.2f) : new Color(1f, 0f, 0f, 0.2f));
+                    shapeRenderer.setColor(isInInteractionRange(mouseWorldX, mouseWorldY) ? Color.YELLOW : Color.RED);
                     shapeRenderer.rect(mouseWorldX, mouseWorldY, 1, 1);
                 }
+                shapeRenderer.end();
 
+                shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
                 // Fantôme du bâtiment à construire
                 if (selectedBuildingType != null) {
                     boolean ok = isInInteractionRange(mouseWorldX, mouseWorldY) && canPlaceBuilding(selectedBuildingType, mouseWorldX + MAP_OFFSET, mouseWorldY + MAP_OFFSET);
@@ -662,8 +722,9 @@ public class GameMain extends ApplicationAdapter {
                         case 3: shapeRenderer.rect(cx - len, cy - 0.05f, len, 0.1f); break;
                     }
                 }
+                shapeRenderer.end();
             }
-            shapeRenderer.end();
+
 
             // 4) Dessiner la grille
             shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
@@ -716,6 +777,7 @@ public class GameMain extends ApplicationAdapter {
         }
 
         // Mouvement joueur (ZQSD ou Flèches)
+        Vector2 lastPos = new Vector2(playerPos);
         if (Gdx.input.isKeyPressed(Keys.W) || Gdx.input.isKeyPressed(Keys.Z) || Gdx.input.isKeyPressed(Keys.UP)) {
             playerPos.y += MOVE_SPEED * dt;
         }
@@ -729,6 +791,10 @@ public class GameMain extends ApplicationAdapter {
         if (Gdx.input.isKeyPressed(Keys.D)) {
             playerPos.x += MOVE_SPEED * dt;
             playerSprite.setFlip(false, false);
+        }
+
+        if (isCollidingWithBuilding(playerPos.x, playerPos.y)) {
+            playerPos.set(lastPos);
         }
 
         // Clic droit = annuler sélection (+ ferme popup)
@@ -768,6 +834,22 @@ public class GameMain extends ApplicationAdapter {
                 applyTool(worldPos.x, worldPos.y);
             }
         }
+    }
+
+    private boolean isCollidingWithBuilding(float worldX, float worldY) {
+        for (Building b : buildings) {
+            float bx = b.getGridX() - MAP_OFFSET;
+            float by = b.getGridY() - MAP_OFFSET;
+            float bw = b.getType().width;
+            float bh = b.getType().height;
+
+            // Simple AABB collision check
+            if (worldX < bx + bw && worldX + playerSprite.getWidth() > bx &&
+                    worldY < by + bh && worldY + playerSprite.getHeight() > by) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void tryInteract() {
@@ -962,6 +1044,7 @@ public class GameMain extends ApplicationAdapter {
     private void cancelSelection() {
         selectedBuildingType = null;
         selectedTool = "NONE";
+        updateSelectionLabel();
         closePlanterPopup();
         closeHQPopup();
         if (toolGroup != null) toolGroup.uncheckAll();
@@ -1005,6 +1088,11 @@ public class GameMain extends ApplicationAdapter {
                 // Jardinière uniquement sur TILLED
                 if (type == Building.Type.PLANTER) {
                     if (t.getType() != Terrain.Type.TILLED) return false;
+                }
+
+                // HQ peut être placé sur l'herbe
+                if (type == Building.Type.MAIN_HQ) {
+                    if (t.getType() != Terrain.Type.GRASS) return false;
                 }
             }
         }
@@ -1063,8 +1151,8 @@ public class GameMain extends ApplicationAdapter {
     }
 
     private void applyTool(float worldX, float worldY) {
-        int worldGridX = Math.round(worldX);
-        int worldGridY = Math.round(worldY);
+        int worldGridX = MathUtils.floor(worldX);
+        int worldGridY = MathUtils.floor(worldY);
 
         if (!isInInteractionRange(worldGridX, worldGridY)) return;
 
@@ -1084,12 +1172,12 @@ public class GameMain extends ApplicationAdapter {
 
     private boolean isInInteractionRange(int targetWorldX, int targetWorldY) {
         int playerWorldX = Math.round(playerPos.x);
-        int playerWorldY = Math.round(playerPos.y);
+        int playerWorldY = Math.round(playerPos.y - 0.5f);
 
         int dx = Math.abs(targetWorldX - playerWorldX);
         int dy = Math.abs(targetWorldY - playerWorldY);
 
-        return dx <= 3 && dy <= 3;
+        return dx <= 1 && dy <= 1;
     }
 
     // ===== SAVE / LOAD =====
@@ -1259,6 +1347,7 @@ public class GameMain extends ApplicationAdapter {
         if (tileGrass != null) tileGrass.dispose();
         if (tileTilled != null) tileTilled.dispose();
         if (tileRoad != null) tileRoad.dispose();
+        if (hqTexture != null) hqTexture.dispose();
 
         if (backgroundMusic != null) backgroundMusic.dispose();
 

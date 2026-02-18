@@ -17,7 +17,7 @@ public class Building {
         CHICKEN_COOP(1, 1, BuildingCategory.ANIMAL),
 
         // --- Gestion & Vente ---
-        MAIN_HQ(3, 3, BuildingCategory.LOGISTICS), // Le QG principal
+        MAIN_HQ(4, 4, BuildingCategory.LOGISTICS), // Le QG principal
         SELL_POINT(1, 1, BuildingCategory.LOGISTICS), // Pour vendre les récoltes
 
         // --- Transport ---
