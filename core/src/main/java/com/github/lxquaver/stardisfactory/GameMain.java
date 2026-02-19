@@ -11,16 +11,10 @@ import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.Texture.TextureFilter;
-import com.badlogic.gdx.graphics.g2d.*;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.Sprite;
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
-import com.badlogic.gdx.maps.tiled.TiledMap;
-import com.badlogic.gdx.maps.tiled.TiledMapTile;
-import com.badlogic.gdx.maps.tiled.TmxMapLoader;
-import com.badlogic.gdx.maps.tiled.objects.TiledMapTileMapObject;
-import com.badlogic.gdx.maps.tiled.renderers.OrthogonalTiledMapRenderer;
-import com.badlogic.gdx.maps.MapLayer;
-import com.badlogic.gdx.maps.MapObjects;
-import com.badlogic.gdx.maps.MapObject;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
@@ -94,15 +88,6 @@ public class GameMain extends ApplicationAdapter {
     private Vector2 playerPos;
     private final Vector2 conveyorItemTmp = new Vector2();
     private final float MOVE_SPEED = 5f; // Vitesse de déplacement
-    private Animation<TextureRegion> walkAnimationDown;
-    private Animation<TextureRegion> walkAnimationUp;
-    private Animation<TextureRegion> walkAnimationSide;
-    private Animation<TextureRegion> idleAnimationDown;
-    private Animation<TextureRegion> idleAnimationUp;
-    private Animation<TextureRegion> idleAnimationSide;
-    private float stateTime;
-    private boolean isMoving;
-    private int playerDirection = 2; // 0=up, 1=right, 2=down, 3=left
 
     // --- Textures du Terrain ---
     // Ces images doivent être dans le dossier 'assets'
@@ -129,17 +114,11 @@ public class GameMain extends ApplicationAdapter {
     private static final float PLANTER_VISUAL_SCALE = 1.0f;
     private static final float READY_FILTER_SCALE = 0.7f;
 
-    // --- Tiled Map ---
-    private TiledMap tiledMap;
-    private OrthogonalTiledMapRenderer mapRenderer;
-    private static final float UNIT_SCALE = 1 / 16f;
-
 
 
     // --- Données du Monde ---
-    private static final int MAP_WIDTH = 30;
-    private static final int MAP_HEIGHT = 20;
-    private static final int MAP_OFFSET = 0;
+    private static final int MAP_SIZE = 100; // Taille de la carte (100x100 cases)
+    private static final int MAP_OFFSET = 50; // Décalage pour centrer (0,0) au milieu
 
     private Terrain[][] terrainGrid; // La grille de sol
     private List<Building> buildings; // La liste de tous les bâtiments posés
@@ -182,7 +161,7 @@ public class GameMain extends ApplicationAdapter {
         batch = new SpriteBatch();
         shapeRenderer = new ShapeRenderer();
         camera = new OrthographicCamera();
-        viewport = new FitViewport(MAP_WIDTH, MAP_HEIGHT, camera);
+        viewport = new FitViewport(32, 18, camera); // On voit 32x18 mètres du monde
 
         // Initialisation de l'UI
         uiStage = new Stage(new ScreenViewport());
@@ -234,10 +213,6 @@ public class GameMain extends ApplicationAdapter {
         conveyorBottomTexture.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
         conveyorLeftTexture.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
 
-        // Chargement de la map Tiled
-        tiledMap = new TmxMapLoader().load("maps/main.tmx");
-        mapRenderer = new OrthogonalTiledMapRenderer(tiledMap, UNIT_SCALE);
-
 
         // Chargement de la musique (si le fichier existe)
         try {
@@ -263,55 +238,19 @@ public class GameMain extends ApplicationAdapter {
 
         // Création du joueur
         playerTextureImg = new Texture("player.png");
-
-        // Charger les spritesheets pour chaque direction
-        Texture walkDownSheet = new Texture(Gdx.files.internal("Character/Walk_down.png"));
-        Texture walkUpSheet = new Texture(Gdx.files.internal("Character/Walk_up.png"));
-        Texture walkSideSheet = new Texture(Gdx.files.internal("Character/Walk.png"));
-        Texture idleDownSheet = new Texture(Gdx.files.internal("Character/Idle.png"));
-        Texture idleUpSheet = new Texture(Gdx.files.internal("Character/Idle_up.png"));
-        Texture idleSideSheet = new Texture(Gdx.files.internal("Character/Idle_side.png"));
-
-        // Découper les frames
-        TextureRegion[][] tmpWalkDown = TextureRegion.split(walkDownSheet, 32, 32);
-        TextureRegion[][] tmpWalkUp = TextureRegion.split(walkUpSheet, 32, 32);
-        TextureRegion[][] tmpWalkSide = TextureRegion.split(walkSideSheet, 32, 32);
-        TextureRegion[][] tmpIdleDown = TextureRegion.split(idleDownSheet, 32, 32);
-        TextureRegion[][] tmpIdleUp = TextureRegion.split(idleUpSheet, 32, 32);
-        TextureRegion[][] tmpIdleSide = TextureRegion.split(idleSideSheet, 32, 32);
-
-        // Créer les animations
-        walkAnimationDown = new Animation<>(0.1f, tmpWalkDown[0]);
-        walkAnimationUp = new Animation<>(0.1f, tmpWalkUp[0]);
-        walkAnimationSide = new Animation<>(0.1f, tmpWalkSide[0]);
-        idleAnimationDown = new Animation<>(0.2f, tmpIdleDown[0]);
-        idleAnimationUp = new Animation<>(0.2f, tmpIdleUp[0]);
-        idleAnimationSide = new Animation<>(0.2f, tmpIdleSide[0]);
-
-        // Configurer les boucles
-        walkAnimationDown.setPlayMode(Animation.PlayMode.LOOP);
-        walkAnimationUp.setPlayMode(Animation.PlayMode.LOOP);
-        walkAnimationSide.setPlayMode(Animation.PlayMode.LOOP);
-        idleAnimationDown.setPlayMode(Animation.PlayMode.LOOP);
-        idleAnimationUp.setPlayMode(Animation.PlayMode.LOOP);
-        idleAnimationSide.setPlayMode(Animation.PlayMode.LOOP);
-
-        stateTime = 0f;
-
-        // Sprite initial
-        playerSprite = new Sprite(idleAnimationDown.getKeyFrame(0));
-        playerSprite.setSize(1f, 1f);
-        playerPos = new Vector2(15, 10);
+        playerSprite = new Sprite(playerTextureImg);
+        playerSprite.setSize(1f, 1f); // Le joueur fait 1x1 case
+        playerPos = new Vector2(0, 0);
 
         // Création du monde vide
-        terrainGrid = new Terrain[MAP_WIDTH][MAP_HEIGHT];
-        for (int x = 0; x < MAP_WIDTH; x++) {
-            for (int y = 0; y < MAP_HEIGHT; y++) {
-                terrainGrid[x][y] = new Terrain(Terrain.Type.DIRT);
+        terrainGrid = new Terrain[MAP_SIZE][MAP_SIZE];
+        buildings = new ArrayList<>();
+
+        for (int x = 0; x < MAP_SIZE; x++) {
+            for (int y = 0; y < MAP_SIZE; y++) {
+                terrainGrid[x][y] = new Terrain(Terrain.Type.GRASS);
             }
         }
-
-        buildings = new ArrayList<>();
 
         // On commence sur le menu principal
         showMainMenu();
@@ -829,11 +768,6 @@ public class GameMain extends ApplicationAdapter {
     private void resumeGame() {
         currentState = GameState.PLAYING;
         pauseWindow.setVisible(false);
-        setGameHUDVisible(true); // On affiche le HUD du jeu
-
-        // On place le HQ de départ
-        buildings.clear();
-        // Le HQ est déjà présent dans la map Tiled
     }
 
     private void ensureCoreBuildings() {
@@ -867,7 +801,6 @@ public class GameMain extends ApplicationAdapter {
     @Override
     public void render() {
         float dt = Gdx.graphics.getDeltaTime();
-        stateTime += dt;
 
         // --- Logique du jeu (Mise à jour) ---
         if (currentState == GameState.PLAYING) {
@@ -882,7 +815,6 @@ public class GameMain extends ApplicationAdapter {
             // La caméra suit le joueur
             camera.position.set(playerPos.x, playerPos.y, 0);
             camera.update();
-            viewport.update(Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         } else if (currentState == GameState.PAUSED) {
             // En pause, on écoute juste Echap pour reprendre
             if (Gdx.input.isKeyJustPressed(Keys.ESCAPE)) {
@@ -897,15 +829,11 @@ public class GameMain extends ApplicationAdapter {
         // Si on joue ou qu'on est en pause, on dessine le monde en arrière-plan
         if (currentState == GameState.PLAYING || currentState == GameState.PAUSED) {
 
-            // 1) Dessiner la map Tiled (layers seulement)
-            mapRenderer.setView(camera);
-            mapRenderer.render(new int[]{0, 1, 2}); // Ground, Background, Foreground layers
-
-            // 2) Dessiner les terrains modifiés par-dessus la map
+            // 1) Dessiner le terrain (Terre, Herbe...)
             batch.setProjectionMatrix(camera.combined);
             batch.begin();
-            for (int x = 0; x < MAP_WIDTH; x++) {
-                for (int y = 0; y < MAP_HEIGHT; y++) {
+            for (int x = 0; x < MAP_SIZE; x++) {
+                for (int y = 0; y < MAP_SIZE; y++) {
                     Terrain t = terrainGrid[x][y];
                     Texture tex;
                     switch (t.getType()) {
@@ -913,14 +841,13 @@ public class GameMain extends ApplicationAdapter {
                         case TILLED: tex = tileTilled; break;
                         default:     tex = tileGrass; break;
                     }
+                    batch.draw(tex, x - MAP_OFFSET, y - MAP_OFFSET, 1f, 1f);
                 }
             }
-            batch.end();
+            batch.end(); // On termine le batch du terrain avant de passer au ShapeRenderer
 
-            // 3) Dessiner les objets Tiled
-            renderTiledObjects();
 
-            // 4) Dessiner les bâtiments (Carrés de couleur)
+            // 2) Dessiner les bâtiments (Carrés de couleur)
             shapeRenderer.setProjectionMatrix(camera.combined);
             shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
             for (Building b : buildings) {
@@ -1108,42 +1035,13 @@ public class GameMain extends ApplicationAdapter {
             shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
             Gdx.gl.glEnable(Gdx.gl.GL_BLEND);
             shapeRenderer.setColor(0.2f, 0.2f, 0.2f, 0.5f);
-            for (int x = 0; x <= MAP_WIDTH; x++) shapeRenderer.line(x - MAP_OFFSET, -MAP_OFFSET, x - MAP_OFFSET, MAP_HEIGHT - MAP_OFFSET);
-            for (int y = 0; y <= MAP_HEIGHT; y++) shapeRenderer.line(-MAP_OFFSET, y - MAP_OFFSET, MAP_WIDTH - MAP_OFFSET, y - MAP_OFFSET);
+            for (int x = 0; x <= MAP_SIZE; x++) shapeRenderer.line(x - MAP_OFFSET, -MAP_OFFSET, x - MAP_OFFSET, MAP_SIZE - MAP_OFFSET);
+            for (int y = 0; y <= MAP_SIZE; y++) shapeRenderer.line(-MAP_OFFSET, y - MAP_OFFSET, MAP_SIZE - MAP_OFFSET, y - MAP_OFFSET);
             shapeRenderer.end();
 
             // 5) Dessiner le joueur
             batch.begin();
-
-            // Choisir la bonne animation selon la direction
-            Animation<TextureRegion> currentAnim;
-            if (isMoving) {
-                switch (playerDirection) {
-                    case 0: currentAnim = walkAnimationUp; break;
-                    case 1: currentAnim = walkAnimationSide; break;
-                    case 2: currentAnim = walkAnimationDown; break;
-                    default: currentAnim = walkAnimationSide; break;
-                }
-            } else {
-                switch (playerDirection) {
-                    case 0: currentAnim = idleAnimationUp; break;
-                    case 1: currentAnim = idleAnimationSide; break;
-                    case 2: currentAnim = idleAnimationDown; break;
-                    default: currentAnim = idleAnimationSide; break;
-                }
-            }
-            TextureRegion currentFrame = currentAnim.getKeyFrame(stateTime, true);
-
-            playerSprite.setRegion(currentFrame);
-
-            // Flip pour la direction gauche
-            if (playerDirection == 3) {
-                playerSprite.setFlip(true, false);
-            } else {
-                playerSprite.setFlip(false, false);
-            }
-
-            playerSprite.setPosition(playerPos.x - 0.5f, playerPos.y - 0.5f);
+            playerSprite.setPosition(playerPos.x - playerSprite.getWidth() / 2f, playerPos.y - playerSprite.getHeight() / 2f);
             playerSprite.draw(batch);
             batch.end();
 
@@ -1185,27 +1083,23 @@ public class GameMain extends ApplicationAdapter {
 
         // Mouvement joueur (ZQSD ou Flèches)
         Vector2 lastPos = new Vector2(playerPos);
-        isMoving = false;
-
         if (Gdx.input.isKeyPressed(Keys.W) || Gdx.input.isKeyPressed(Keys.Z) || Gdx.input.isKeyPressed(Keys.UP)) {
             playerPos.y += MOVE_SPEED * dt;
-            playerDirection = 0; // up
-            isMoving = true;
         }
         if (Gdx.input.isKeyPressed(Keys.S) || Gdx.input.isKeyPressed(Keys.DOWN)) {
             playerPos.y -= MOVE_SPEED * dt;
-            playerDirection = 2; // down
-            isMoving = true;
         }
         if (Gdx.input.isKeyPressed(Keys.A) || Gdx.input.isKeyPressed(Keys.Q)) {
             playerPos.x -= MOVE_SPEED * dt;
-            playerDirection = 3; // left
-            isMoving = true;
+            playerSprite.setFlip(true, false);
         }
         if (Gdx.input.isKeyPressed(Keys.D)) {
             playerPos.x += MOVE_SPEED * dt;
-            playerDirection = 1; // right
-            isMoving = true;
+            playerSprite.setFlip(false, false);
+        }
+
+        if (isCollidingWithBuilding(playerPos.x, playerPos.y)) {
+            playerPos.set(lastPos);
         }
 
         // Clic droit = annuler sélection (+ ferme popup)
@@ -1803,8 +1697,8 @@ public class GameMain extends ApplicationAdapter {
 
         // bounds footprint
         if (gridX < 0 || gridY < 0) return false;
-        if (gridX + type.width > MAP_WIDTH) return false;
-        if (gridY + type.height > MAP_HEIGHT) return false;
+        if (gridX + type.width > MAP_SIZE) return false;
+        if (gridY + type.height > MAP_SIZE) return false;
 
         // Terrain rules + planter on TILLED
         for (int x = gridX; x < gridX + type.width; x++) {
@@ -1890,7 +1784,7 @@ public class GameMain extends ApplicationAdapter {
         int gridX = worldGridX + MAP_OFFSET;
         int gridY = worldGridY + MAP_OFFSET;
 
-        if (gridX >= 0 && gridX < MAP_WIDTH && gridY >= 0 && gridY < MAP_HEIGHT) {
+        if (gridX >= 0 && gridX < MAP_SIZE && gridY >= 0 && gridY < MAP_SIZE) {
             Terrain t = terrainGrid[gridX][gridY];
             Terrain.Type beforeType = t.getType();
             switch (selectedTool) {
@@ -1919,33 +1813,25 @@ public class GameMain extends ApplicationAdapter {
     // ===== SAVE / LOAD =====
     private void saveGame() {
         GameSave save = new GameSave();
-        save.mapSize = MAP_WIDTH;
+        save.mapSize = MAP_SIZE;
         save.mapOffset = MAP_OFFSET;
-save.playerX = playerPos.x;
-save.playerY = playerPos.y;
-save.money = money;
+        save.playerX = playerPos.x;
+        save.playerY = playerPos.y;
+        save.money = money;
+        save.buildingStockPlanter = buildingStockPlanter;
+        save.buildingStockConveyor = buildingStockConveyor;
+        save.seedBagsPotato = seedBagsPotato;
+        save.seedBagsStrawberry = seedBagsStrawberry;
+        save.seedBagsLeek = seedBagsLeek;
+        save.carriedPotato = carriedPotato;
+        save.carriedStrawberry = carriedStrawberry;
+        save.carriedLeek = carriedLeek;
 
-save.buildingStockPlanter = buildingStockPlanter;
-save.buildingStockConveyor = buildingStockConveyor;
-
-save.seedBagsPotato = seedBagsPotato;
-save.seedBagsStrawberry = seedBagsStrawberry;
-save.seedBagsLeek = seedBagsLeek;
-
-save.carriedPotato = carriedPotato;
-save.carriedStrawberry = carriedStrawberry;
-save.carriedLeek = carriedLeek;
-
-save.terrainTypeNames = new String[MAP_WIDTH * MAP_HEIGHT];
-int idx = 0;
-
-for (int y = 0; y < MAP_HEIGHT; y++) {
-    for (int x = 0; x < MAP_WIDTH; x++) {
-        save.terrainTypeNames[idx++] =
-            terrainGrid[x][y].getType().name();
-    }
-}
-
+        save.terrainTypeNames = new String[MAP_SIZE * MAP_SIZE];
+        int idx = 0;
+        for (int y = 0; y < MAP_SIZE; y++) {
+            for (int x = 0; x < MAP_SIZE; x++) {
+                save.terrainTypeNames[idx++] = terrainGrid[x][y].getType().name();
             }
         }
 
@@ -2064,40 +1950,6 @@ for (int y = 0; y < MAP_HEIGHT; y++) {
         if (legacyOrdinal == 2) return Terrain.Type.TILLED;
         // Legacy DIRT/GRASS/ROAD deviennent GRASS dans la nouvelle logique.
         return Terrain.Type.GRASS;
-    }
-
-    private void renderTiledObjects() {
-        MapLayer objectLayer = null;
-        for (MapLayer layer : tiledMap.getLayers()) {
-            if (layer.getName().equals("Objects")) {
-                objectLayer = layer;
-                break;
-            }
-        }
-        if (objectLayer == null) return;
-
-        MapObjects objects = objectLayer.getObjects();
-        if (objects == null) return;
-
-        batch.setProjectionMatrix(camera.combined);
-        batch.begin();
-
-        for (MapObject obj : objects) {
-            if (obj instanceof TiledMapTileMapObject) {
-                TiledMapTileMapObject tileObj = (TiledMapTileMapObject) obj;
-                TiledMapTile tile = tileObj.getTile();
-                if (tile != null) {
-                    float x = tileObj.getX() * UNIT_SCALE;
-                    float y = tileObj.getY() * UNIT_SCALE;
-                    float width = tile.getTextureRegion().getRegionWidth() * UNIT_SCALE;
-                    float height = tile.getTextureRegion().getRegionHeight() * UNIT_SCALE;
-
-                    batch.draw(tile.getTextureRegion(), x, y, width, height);
-                }
-            }
-        }
-
-        batch.end();
     }
 
     private void updateConveyors(float dt) {
