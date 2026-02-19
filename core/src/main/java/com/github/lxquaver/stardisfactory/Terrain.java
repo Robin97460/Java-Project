@@ -10,10 +10,8 @@ public class Terrain {
      * Les différents types de sol possibles.
      */
     public enum Type {
-        DIRT(false, false),      // Terre simple (le défaut)
-        GRASS(true, false),      // Herbe (nécessaire pour les animaux)
-        TILLED(false, true),     // Terre labourée (nécessaire pour planter)
-        ROAD(false, false);      // Route (pour faire joli et marcher vite plus tard)
+        GRASS(true, false),      // Herbe
+        TILLED(false, true);     // Terre labourée (nécessaire pour planter)
 
         // Propriétés du sol
         public final boolean supportsAnimals; // Peut-on poser un enclos ici ?
@@ -37,44 +35,21 @@ public class Terrain {
 
     /**
      * Action : Labourer le sol (Houe).
-     * Transforme l'herbe en terre, et la terre en terre labourée.
+     * Transforme l'herbe en terre labourée.
      */
     public void till() {
         if (currentType == Type.GRASS) {
-            currentType = Type.DIRT;
-        } else if (currentType == Type.DIRT) {
             currentType = Type.TILLED;
         }
     }
 
     /**
-     * Action : Planter de l'herbe (Graines d'herbe).
-     * Transforme la terre labourée en herbe.
-     */
-    public void plantGrass() {
-        if (currentType == Type.TILLED) {
-            currentType = Type.GRASS;
-        }
-    }
-
-    /**
-     * Action : Construire une route (Pelle).
-     * Transforme la terre en route.
-     */
-    public void buildRoad() {
-        if (currentType == Type.DIRT) {
-            currentType = Type.ROAD;
-        }
-    }
-
-    /**
      * Action : Nettoyer le terrain (Marteau/Main).
-     * Remet le terrain à l'état de terre simple (DIRT).
+     * Remet le terrain à l'état d'herbe (GRASS).
      */
     public void clear() {
-        // On peut nettoyer n'importe quoi sauf la terre de base (qui est déjà propre)
-        if (currentType == Type.ROAD || currentType == Type.TILLED || currentType == Type.GRASS) {
-            currentType = Type.DIRT;
+        if (currentType == Type.TILLED) {
+            currentType = Type.GRASS;
         }
     }
 
